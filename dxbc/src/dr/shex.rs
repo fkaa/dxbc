@@ -111,7 +111,6 @@ pub enum IndexRepresentation {
     Immediate64PlusRelative = 4,
 }
 
-// TODO: get from function on operand, not stored in struct
 #[derive(Debug)]
 pub enum Immediate<'a> {
     U32(&'a [u32]),
@@ -120,19 +119,6 @@ pub enum Immediate<'a> {
     U32Relative(&'a [(u32, OperandToken0<'a>)]),
     U64Relative(&'a [(u64, OperandToken0<'a>)]),
 }
-
-/*#[derive(Debug)]
-pub enum Immediate {
-    D0,
-    D1(ImmediateValue),
-    D2(ImmediateValue, ImmediateValue),
-    D3(ImmediateValue, ImmediateValue, ImmediateValue),
-}*/
-
-/*impl<'a> Immediate<'a> {
-    pub fn parse<'b, 'c>(operand: OperandToken0, decoder: &'b mut decoder::Decoder<'c>) -> Immediate<'c> {
-    }
-}*/
 
 #[repr(u32)]
 #[derive(Debug)]
@@ -210,6 +196,8 @@ impl NameToken {
     }
 }
 
+#[repr(u32)]
+#[derive(Debug)]
 pub enum OperandModifier {
     None,
     Neg,
@@ -228,6 +216,24 @@ impl OperandModifier {
         }
     }
 }
+
+#[repr(u32)]
+#[derive(Debug)]
+pub enum TestBoolean {
+    Zero,
+    NonZero,
+}
+
+impl TestBoolean {
+    pub fn from_word(word: u32) -> Self {
+        match DECODE_D3D10_SB_INSTRUCTION_TEST_BOOLEAN(word) {
+            0 => TestBoolean::Zero,
+            1 => TestBoolean::NonZero,
+            _ => unreachable!(),
+        }
+    }
+}
+
 
 /*
 #[derive(Debug)]
@@ -254,6 +260,134 @@ impl<'a> RawInstruction<'a> {
         }
     }
 }*/
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct OpcodeToken0<'a> {
+    pub word: *const u32,
+    _phantom: PhantomData<&'a ()>,
+}
+
+impl<'a> OpcodeToken0<'a> {
+    pub fn from_word(word: *const u32) -> Self {
+        OpcodeToken0 {
+            word,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn is_extended(&self) -> bool {
+        DECODE_IS_D3D10_SB_OPCODE_EXTENDED(unsafe { *self.word }) != 0
+    }
+
+    pub fn is_saturated(&self) -> bool {
+        DECODE_IS_D3D10_SB_INSTRUCTION_SATURATE_ENABLED(unsafe { *self.word }) != 0
+    }
+
+    pub fn get_test_type(&self) -> TestBoolean {
+        TestBoolean::from_word(unsafe { *self.word })
+    }
+
+    pub fn get_extended_opcode(&self) -> Option<OpcodeToken1<'a>> {
+        if self.is_extended() {
+            Some(OpcodeToken1 {
+                word: unsafe { self.word.offset(1) },
+                _phantom: self._phantom,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn get_opcode_type(&self) -> u32 {
+        DECODE_D3D10_SB_OPCODE_TYPE(unsafe { *self.word })
+    }
+
+    pub fn get_instruction_length(&self) -> u32 {
+        DECODE_D3D10_SB_TOKENIZED_INSTRUCTION_LENGTH(unsafe { *self.word })
+    }
+}
+
+impl<'a> fmt::Debug for OpcodeToken0<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("OpcodeToken0")
+            .field("Type", &self.get_opcode_type())
+            .field("InstructionLength", &self.get_instruction_length())
+            .field("IsSaturated", &self.is_saturated())
+            .field("TestType", &self.get_test_type())
+            .finish()
+    }
+}
+
+#[repr(u32)]
+#[derive(Debug)]
+pub enum ExtendedOpcodeType {
+    Empty = 0,
+    SampleControls = 1,
+    ResourceDim = 2,
+    ResourceReturnType = 3,
+}
+
+impl ExtendedOpcodeType {
+    pub fn from_word(word: u32) -> Self {
+        match DECODE_D3D10_SB_EXTENDED_OPCODE_TYPE(word) {
+            0 => ExtendedOpcodeType::Empty,
+            1 => ExtendedOpcodeType::SampleControls,
+            2 => ExtendedOpcodeType::ResourceDim,
+            3 => ExtendedOpcodeType::ResourceReturnType,
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct OpcodeToken1<'a> {
+    pub word: *const u32,
+    _phantom: PhantomData<&'a ()>,
+}
+
+impl<'a> OpcodeToken1<'a> {
+    pub fn from_word(word: *const u32) -> Self {
+        OpcodeToken1 {
+            word,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn get_extended_opcode_type(&self) -> ExtendedOpcodeType {
+        ExtendedOpcodeType::from_word(DECODE_D3D10_SB_TOKENIZED_INSTRUCTION_LENGTH(unsafe { *self.word }))
+    }
+
+    pub fn get_opcode_modifier(&self) -> u32 {
+        DECODE_D3D10_SB_TOKENIZED_INSTRUCTION_LENGTH(unsafe { *self.word })
+    }
+
+
+    pub fn is_extended(&self) -> bool {
+        DECODE_IS_D3D10_SB_OPCODE_EXTENDED(unsafe { *self.word }) != 0
+    }
+
+    pub fn get_extended_opcode(&self) -> Option<OpcodeToken1<'a>> {
+        if self.is_extended() {
+            Some(OpcodeToken1 {
+                word: unsafe { self.word.offset(1) },
+                _phantom: self._phantom,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> fmt::Debug for OpcodeToken1<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("OpcodeToken1")
+            .field("Type", &self.get_extended_opcode_type())
+            .field("OpcodeModifier", &self.get_opcode_modifier())
+            .finish()
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -298,7 +432,14 @@ impl<'a> OperandToken0<'a> {
         }
 
         let len = match operand.get_index_dimension() {
-            IndexDimension::D0 => 0,
+            IndexDimension::D0 => {
+                let ty = operand.get_operand_type();
+
+                match ty {
+                    OperandType::Immediate32 | OperandType::Immediate64 => operand.get_num_components_u32() as usize,
+                    _ => 0
+                }
+            }
             IndexDimension::D1 => 1,
             IndexDimension::D2 => 2,
             IndexDimension::D3 => 3,
@@ -307,14 +448,28 @@ impl<'a> OperandToken0<'a> {
         let repr = operand.get_index_representation();
 
         match repr {
-            IndexRepresentation::Immediate32 | IndexRepresentation::Relative => {
+            IndexRepresentation::Immediate32 => {
                 decoder.skip(len * 4);
             },
-            IndexRepresentation::Immediate64 | IndexRepresentation::Immediate32PlusRelative => {
+            IndexRepresentation::Immediate64 => {
                 decoder.skip(len * 8);
             },
+            IndexRepresentation::Relative => {
+                for _ in 0..len {
+                    let _ = OperandToken0::parse(decoder);
+                }
+            }
+            IndexRepresentation::Immediate32PlusRelative => {
+                for _ in 0..len {
+                    decoder.skip(4);
+                    let _ = OperandToken0::parse(decoder);
+                }
+            },
             IndexRepresentation::Immediate64PlusRelative => {
-                decoder.skip(len * 12);
+                for _ in 0..len {
+                    decoder.skip(8);
+                    let _ = OperandToken0::parse(decoder);
+                }
             },
         }
 
@@ -342,7 +497,14 @@ impl<'a> OperandToken0<'a> {
 
     pub fn get_immediate(&self) -> Immediate<'a> {
         let len = match self.get_index_dimension() {
-            IndexDimension::D0 => 0,
+            IndexDimension::D0 => {
+                let ty = self.get_operand_type();
+
+                match ty {
+                    OperandType::Immediate32 | OperandType::Immediate64 => self.get_num_components_u32() as usize,
+                    _ => 0
+                }
+            },
             IndexDimension::D1 => 1,
             IndexDimension::D2 => 2,
             IndexDimension::D3 => 3,
@@ -350,6 +512,8 @@ impl<'a> OperandToken0<'a> {
 
         let repr = self.get_index_representation();
         let imm = self.get_immediate_offset();
+
+        use self::IndexRepresentation::*;
 
         unsafe {
             match repr {
@@ -407,6 +571,15 @@ impl<'a> OperandToken0<'a> {
             1 => NumComponents::One,
             2 => NumComponents::Four,
             3 => NumComponents::N,
+            _ => unreachable!()
+        }
+    }
+
+    pub fn get_num_components_u32(&self) -> u32 {
+        match DECODE_D3D10_SB_OPERAND_NUM_COMPONENTS(unsafe { *self.word }) {
+            0 => 0,
+            1 => 1,
+            2 => 4,
             _ => unreachable!()
         }
     }
@@ -662,6 +835,11 @@ impl<'a> DclOutputSgv<'a> {
 }
 
 #[derive(Debug)]
+pub struct DclTemps {
+    pub register_count: u32,
+}
+
+#[derive(Debug)]
 pub struct Mul<'a> {
     pub dst: OperandToken0<'a>,
     pub a: OperandToken0<'a>,
@@ -683,10 +861,13 @@ pub struct Mov<'a> {
 }
 
 #[derive(Debug)]
-pub struct DclTemps {
-    pub register_count: u32,
+pub struct SampleL<'a> {
+    pub dst: OperandToken0<'a>,
+    pub src_address: OperandToken0<'a>,
+    pub src_resource: OperandToken0<'a>,
+    pub src_sampler: OperandToken0<'a>,
+    pub src_lod: OperandToken0<'a>,
 }
-
 
 #[repr(C)]
 #[derive(Debug)]
@@ -716,7 +897,13 @@ impl ShexHeader {
 }
 
 #[derive(Debug)]
-pub enum Instruction<'a> {
+pub struct Instruction<'a> {
+    pub opcode: OpcodeToken0<'a>,
+    pub operands: Operands<'a>,
+}
+
+#[derive(Debug)]
+pub enum Operands<'a> {
     DclGlobalFlags(DclGlobalFlags),
     DclInput(DclInput<'a>),
     DclOutput(DclOutput<'a>),
@@ -727,70 +914,73 @@ pub enum Instruction<'a> {
     Mul(Mul<'a>),
     Mad(Mad<'a>),
     Mov(Mov<'a>),
-    Unknown(u32, D3D10_SB_OPCODE_TYPE, u32, u32)
+    SampleL(SampleL<'a>),
+    Ret,
+    Unknown(u32, D3D10_SB_OPCODE_TYPE, u32)
 }
 
 impl<'a> Instruction<'a> {
     pub fn parse<'b>(decoder: &'b mut decoder::Decoder) -> Instruction<'b> {
-        let opcode = decoder.read_u32();
-        let ty = DECODE_D3D10_SB_OPCODE_TYPE(opcode);
-        let len = DECODE_D3D10_SB_TOKENIZED_INSTRUCTION_LENGTH(opcode);
-        let ex = DECODE_IS_D3D10_SB_OPCODE_EXTENDED(opcode);
+        let opcode = OpcodeToken0::from_word(decoder.read_u32_address());
+        let ty = opcode.get_opcode_type();
+        let len = opcode.get_instruction_length();
 
-        let opcode_ex = if ex != 0 {
-            Some(decoder.read_u32())
-        } else {
-            None
-        };
+        let mut ex = opcode.get_extended_opcode();
+        while let Some(opcode) = ex {
+            //println!("{:?}", opcode);
+            //println!("{:?}", ex);
+            ex = opcode.get_extended_opcode();
+            decoder.skip(4);
+        }
 
-        match ty {
+        let operands = match ty {
             D3D10_SB_OPCODE_DCL_GLOBAL_FLAGS => {
-                Instruction::DclGlobalFlags(DclGlobalFlags {
-                    global_flags: DECODE_D3D10_SB_GLOBAL_FLAGS(opcode),
+                Operands::DclGlobalFlags(DclGlobalFlags {
+                    global_flags: DECODE_D3D10_SB_GLOBAL_FLAGS(unsafe { *opcode.word }),
                 })
             }
             D3D10_SB_OPCODE_DCL_INPUT => {
-                Instruction::DclInput(DclInput {
+                Operands::DclInput(DclInput {
                     operand: OperandToken0::parse(decoder),
                 })
             }
             D3D10_SB_OPCODE_DCL_OUTPUT => {
-                Instruction::DclOutput(DclOutput {
+                Operands::DclOutput(DclOutput {
                     operand: OperandToken0::parse(decoder),
                 })
             }
             D3D10_SB_OPCODE_DCL_CONSTANT_BUFFER => {
-                Instruction::DclConstantBuffer(DclConstantBuffer {
+                Operands::DclConstantBuffer(DclConstantBuffer {
                     operand: OperandToken0::parse(decoder),
-                    access: DECODE_D3D10_SB_CONSTANT_BUFFER_ACCESS_PATTERN(opcode),
+                    access: DECODE_D3D10_SB_CONSTANT_BUFFER_ACCESS_PATTERN(unsafe { *opcode.word }),
                 })
             }
             D3D10_SB_OPCODE_DCL_TEMPS => {
-                Instruction::DclTemps(DclTemps {
+                Operands::DclTemps(DclTemps {
                     register_count: decoder.read_u32(),
                 })
             }
             D3D10_SB_OPCODE_DCL_OUTPUT_SIV => {
-                Instruction::DclOutputSiv(DclOutputSiv {
+                Operands::DclOutputSiv(DclOutputSiv {
                     operand: OperandToken0::parse(decoder),
                     operand_2: OperandToken0::parse(decoder),
                 })
             }
             D3D10_SB_OPCODE_DCL_OUTPUT_SGV => {
-                Instruction::DclOutputSgv(DclOutputSgv {
+                Operands::DclOutputSgv(DclOutputSgv {
                     operand: OperandToken0::parse(decoder),
                     operand_2: OperandToken0::parse(decoder),
                 })
             }
             D3D10_SB_OPCODE_MUL => {
-                Instruction::Mul(Mul {
+                Operands::Mul(Mul {
                     dst: OperandToken0::parse(decoder),
                     a: OperandToken0::parse(decoder),
                     b: OperandToken0::parse(decoder),
                 })
             }
             D3D10_SB_OPCODE_MAD => {
-                Instruction::Mad(Mad {
+                Operands::Mad(Mad {
                     dst: OperandToken0::parse(decoder),
                     a: OperandToken0::parse(decoder),
                     b: OperandToken0::parse(decoder),
@@ -798,18 +988,35 @@ impl<'a> Instruction<'a> {
                 })
             }
             D3D10_SB_OPCODE_MOV => {
-                Instruction::Mov(Mov {
+                Operands::Mov(Mov {
                     dst: OperandToken0::parse(decoder),
                     src: OperandToken0::parse(decoder),
                 })
+            }
+            D3D10_SB_OPCODE_SAMPLE_L => {
+                Operands::SampleL(SampleL {
+                    dst: OperandToken0::parse(decoder),
+                    src_address: OperandToken0::parse(decoder),
+                    src_resource: OperandToken0::parse(decoder),
+                    src_sampler: OperandToken0::parse(decoder),
+                    src_lod: OperandToken0::parse(decoder),
+                })
+            }
+            D3D10_SB_OPCODE_RET => {
+                Operands::Ret
             }
             _ => {
                 if len > 1 {
                     decoder.skip(4 * (len as usize  - 1));
                 }
 
-                Instruction::Unknown(opcode, ty, len, ex)
+                Operands::Unknown(unsafe { *opcode.word }, ty, len)
             }
+        };
+
+        Instruction {
+            opcode,
+            operands,
         }
     }
 }

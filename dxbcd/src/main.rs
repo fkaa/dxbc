@@ -1,20 +1,18 @@
-extern crate byteorder;
-#[macro_use]
-extern crate bitflags;
-extern crate winapi;
+extern crate dxbc;
 extern crate term;
 
-mod dr;
-mod binary;
-
-use dr::*;
-use binary::*;
+use dxbc::dr::*;
+use dxbc::binary::*;
 
 use std::mem;
 
 struct DisasmConsumer {
     out: Box<term::StdoutTerminal>,
 }
+
+const COMMENT_COLOR: term::color::Color = term::color::BRIGHT_BLACK;
+const OPCODE_COLOR: term::color::Color = term::color::GREEN;
+const IMMEDIATE_COLOR: term::color::Color = term::color::MAGENTA;
 
 impl DisasmConsumer {
     fn new() -> Self {
@@ -23,10 +21,25 @@ impl DisasmConsumer {
         }
     }
 
-    fn write_instruction<'a>(&mut self, instruction: &str) {
-        self.out.fg(term::color::GREEN).unwrap();
-        write!(self.out, "{}", instruction).unwrap();
+    fn write_instruction<'a>(&mut self, opcode: OpcodeToken0<'a>, offset: u32, instruction: &str) {
+        self.out.fg(COMMENT_COLOR).unwrap();
+        write!(self.out, "{:#08x}: ", offset).unwrap();
         self.out.reset().unwrap();
+
+        self.out.fg(OPCODE_COLOR).unwrap();
+        write!(self.out, "{}", instruction).unwrap();
+        if opcode.is_saturated() {
+            write!(self.out, "_sat").unwrap();
+        }
+
+        let mut ex = opcode.get_extended_opcode();
+        while let Some(opcode) = ex {
+            // TODO:
+            ex = opcode.get_extended_opcode();
+        }
+        self.out.reset().unwrap();
+
+        write!(self.out, " ").unwrap();
     }
 
     fn write_mask(&mut self, mask: ComponentMask) {
@@ -60,6 +73,7 @@ impl DisasmConsumer {
     fn write_operand<'a>(&mut self, operand: &OperandToken0<'a>) {
         let ty = operand.get_operand_type();
         let immediate = operand.get_immediate();
+
         match ty {
             OperandType::Immediate32 | OperandType::Immediate64 => {
                 if let OperandType::Immediate32 = ty {
@@ -68,17 +82,20 @@ impl DisasmConsumer {
                     write!(self.out, "d(").unwrap();
                 }
 
+                self.out.fg(IMMEDIATE_COLOR).unwrap();
                 match immediate {
                     Immediate::U32(vals) => {
-                        let values = vals.iter().map(|&v| f32::from_bits(v).to_string()).collect::<Vec<_>>();
-                        write!(self.out, "{}", values.join(",")).unwrap();
+                        let values = vals.iter().map(|&v| format!("{:.6}", f32::from_bits(v))).collect::<Vec<_>>();
+                        write!(self.out, "{}", values.join(", ")).unwrap();
                     },
                     Immediate::U64(vals) => {
-                        let values = vals.iter().map(|&v| f64::from_bits(v).to_string()).collect::<Vec<_>>();
-                        write!(self.out, "{}", values.join(",")).unwrap();
+                        let values = vals.iter().map(|&v| format!("{:.6}", f64::from_bits(v))).collect::<Vec<_>>();
+                        write!(self.out, "{}", values.join(", ")).unwrap();
                     }
                     _ => {}
                 }
+                self.out.reset().unwrap();
+
                 write!(self.out, ")").unwrap();
             }
             _ => {
@@ -105,8 +122,12 @@ impl DisasmConsumer {
             OperandType::Temp => "r",
             OperandType::Input => "v",
             OperandType::Output => "o",
+            OperandType::Resource => "t",
+            OperandType::Sampler => "s",
             OperandType::ConstantBuffer => "cb",
-            _ => unimplemented!()
+
+            OperandType::Immediate32 | OperandType::Immediate64 => { return; }
+            _ => ""
         };
 
         write!(self.out, "{}", prefix).unwrap();
@@ -115,10 +136,10 @@ impl DisasmConsumer {
             Immediate::U32(vals) => {
                 match vals.len() {
                     1 => {
-                        write!(self.out, "{}.", vals[0]).unwrap();
+                        write!(self.out, "{}", vals[0]).unwrap();
                     },
                     2 => {
-                        write!(self.out, "{}[{}].", vals[0], vals[1]).unwrap();
+                        write!(self.out, "{}[{}]", vals[0], vals[1]).unwrap();
                     },
                     _ => {}
                 }
@@ -139,6 +160,10 @@ impl DisasmConsumer {
             ComponentSelectMode::Mask => {
                 let mask = operand.get_component_mask();
 
+                if !mask.is_empty() {
+                    write!(self.out, ".").unwrap();
+                }
+
                 if mask.contains(ComponentMask::COMPONENT_MASK_R) {
                     write!(self.out, "x").unwrap();
                 }
@@ -153,6 +178,8 @@ impl DisasmConsumer {
                 }
             }
             ComponentSelectMode::Swizzle => {
+                write!(self.out, ".").unwrap();
+
                 let swizzle = operand.get_component_swizzle();
 
                 write_swizzle_component(self, swizzle.0);
@@ -190,13 +217,13 @@ impl Consumer for DisasmConsumer {
         Action::Continue
     }
 
-    fn consume_header(&mut self, header: &dr::DxbcHeader) -> Action {
+    fn consume_header(&mut self, header: &dxbc::dr::DxbcHeader) -> Action {
         Action::Continue
     }
 
-    fn consume_rdef(&mut self, rdef: &dr::RdefChunk) -> Action {
+    fn consume_rdef(&mut self, rdef: &dxbc::dr::RdefChunk) -> Action {
 
-        self.out.fg(term::color::BRIGHT_BLACK).unwrap();
+        self.out.fg(COMMENT_COLOR).unwrap();
         writeln!(self.out, "//").unwrap();
         writeln!(self.out, "// Generated by {}", rdef.author).unwrap();
         writeln!(self.out, "//").unwrap();
@@ -228,8 +255,8 @@ impl Consumer for DisasmConsumer {
         Action::Continue
     }
 
-    fn consume_isgn(&mut self, isgn: &dr::IOsgnChunk) -> Action {
-        self.out.fg(term::color::BRIGHT_BLACK).unwrap();
+    fn consume_isgn(&mut self, isgn: &dxbc::dr::IOsgnChunk) -> Action {
+        self.out.fg(COMMENT_COLOR).unwrap();
 
         writeln!(self.out, "//").unwrap();
         writeln!(self.out, "// Input signature:").unwrap();
@@ -258,70 +285,107 @@ impl Consumer for DisasmConsumer {
         Action::Continue
     }
 
-    fn consume_osgn(&mut self, osgn: &dr::IOsgnChunk) -> Action {
+    fn consume_osgn(&mut self, osgn: &dxbc::dr::IOsgnChunk) -> Action {
+        self.out.fg(COMMENT_COLOR).unwrap();
+
+        writeln!(self.out, "//").unwrap();
+        writeln!(self.out, "// Output signature:").unwrap();
+        writeln!(self.out, "//").unwrap();
+        writeln!(self.out, "// Name                 Index   Mask Register SysValue  Format   Used").unwrap();
+        writeln!(self.out, "// -------------------- ----- ------ -------- -------- ------- ------").unwrap();
+
+        for elem in &osgn.elements {
+            writeln!(
+                self.out,
+                "// {:20} {:5} {:6} {:8} {:8} {:7} {:6}",
+                elem.name,
+                elem.semantic_index,
+                elem.component_type,
+                elem.register,
+                "NONE",
+                elem.component_type,
+                elem.rw_mask,
+            ).unwrap();
+        }
+        writeln!(self.out, "//").unwrap();
+        writeln!(self.out, "//").unwrap();
+
+        self.out.reset().unwrap();
 
         Action::Continue
     }
 
-    fn consume_shex(&mut self, osgn: &dr::ShexHeader) -> Action {
+    fn consume_shex(&mut self, osgn: &dxbc::dr::ShexHeader) -> Action {
 
         Action::Continue
     }
 
-    fn consume_instruction(&mut self, instruction: dr::Instruction) -> Action
-    {
-        use dr::Instruction::*;
+    fn consume_instruction(&mut self, offset: u32, instruction: dxbc::dr::Instruction) -> Action {
+        use dxbc::dr::Operands::*;
 
-        match instruction {
+        let opcode = instruction.opcode;
+
+        match instruction.operands {
             DclGlobalFlags(flags) => {
-                self.write_instruction("dcl_globalFlags");
+                self.write_instruction(opcode, offset, "dcl_globalFlags");
 
                 if flags.is_refactoring_allowed() {
-                    write!(self.out, "{}", " refactoringAllowed").unwrap();
+                    write!(self.out, "{}", "refactoringAllowed").unwrap();
                 }
                 writeln!(self.out, "").unwrap();
             }
             DclInput(input) => {
-                self.write_instruction("dcl_input");
-                write!(self.out, " v{}.", input.get_input_register()).unwrap();
+                self.write_instruction(opcode, offset, "dcl_input");
+                write!(self.out, "v{}.", input.get_input_register()).unwrap();
                 self.write_mask(input.operand.get_component_mask());
                 writeln!(self.out, "").unwrap();
             }
             DclOutput(output) => {
-                self.write_instruction("dcl_output");
-                write!(self.out, " o{}.", output.get_output_register()).unwrap();
+                self.write_instruction(opcode, offset, "dcl_output");
+                write!(self.out, "o{}.", output.get_output_register()).unwrap();
                 self.write_mask(output.operand.get_component_mask());
                 writeln!(self.out, "").unwrap();
             }
             DclConstantBuffer(cb) => {
-                self.write_instruction("dcl_constantbuffer");
+                self.write_instruction(opcode, offset, "dcl_constantbuffer");
 
-                writeln!(self.out, " CB{}[{}], {:?}", cb.get_binding(), cb.get_size(), cb.get_access_pattern()).unwrap();
+                writeln!(self.out, "CB{}[{}], {:?}", cb.get_binding(), cb.get_size(), cb.get_access_pattern()).unwrap();
             }
             DclTemps(temps) => {
-                self.write_instruction("dcl_temps");
+                self.write_instruction(opcode, offset, "dcl_temps");
 
-                writeln!(self.out, " {}", temps.register_count).unwrap();
+                writeln!(self.out, "{}", temps.register_count).unwrap();
             }
             DclOutputSiv(siv) => {
-                self.write_instruction("dcl_output_siv");
-                write!(self.out, " o{}.", siv.get_output_register()).unwrap();
+                self.write_instruction(opcode, offset, "dcl_output_siv");
+                write!(self.out, "o{}.", siv.get_output_register()).unwrap();
                 self.write_mask(siv.operand.get_component_mask());
                 writeln!(self.out, ", {:?}", siv.get_system_name()).unwrap();
             },
             Mul(mul) => {
-                self.write_instruction("mul ");
+                self.write_instruction(opcode, offset, "mul");
                 self.write_operands(&[mul.dst, mul.a, mul.b]);
             },
             Mad(mad) => {
-                self.write_instruction("mad ");
+                self.write_instruction(opcode, offset, "mad");
                 self.write_operands(&[mad.dst, mad.a, mad.b, mad.c]);
             }
             Mov(mov) => {
-                self.write_instruction("mov ");
+                self.write_instruction(opcode, offset, "mov");
                 self.write_operands(&[mov.dst, mov.src]);
-                println!("  {:#?}", mov.dst);
-                println!("  {:#?}", mov.src);
+            }
+            SampleL(sample) => {
+                self.write_instruction(opcode, offset, "sample_l");
+                self.write_operands(&[sample.dst, sample.src_address, sample.src_resource, sample.src_sampler, sample.src_lod]);
+                //println!("{:#?}", sample.dst);
+                //println!("{:#?}", sample.src_address);
+                //println!("{:#?}", sample.src_resource);
+                //println!("{:#?}", sample.src_sampler);
+                //println!("{:#?}", sample.src_lod);
+            }
+            Ret => {
+                self.write_instruction(opcode, offset, "ret");
+                writeln!(self.out, "").unwrap();
             }
             _ => {
                 println!("  {:?}", instruction);

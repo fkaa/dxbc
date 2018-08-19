@@ -1,7 +1,7 @@
 use super::error;
 
 use dr;
-use decoder;
+use super::decoder;
 
 use std::mem;
 use std::str;
@@ -34,7 +34,7 @@ pub trait Consumer {
     fn consume_isgn(&mut self, isgn: &dr::IOsgnChunk) -> Action { Action::Continue }
     fn consume_osgn(&mut self, osgn: &dr::IOsgnChunk) -> Action { Action::Continue }
     fn consume_shex(&mut self, osgn: &dr::ShexHeader) -> Action { Action::Continue }
-    fn consume_instruction(&mut self, instruction: dr::Instruction) -> Action { Action::Continue }
+    fn consume_instruction(&mut self, offset: u32, instruction: dr::Instruction) -> Action { Action::Continue }
 }
 
 fn try_consume(action: Action) -> Result<(), State> {
@@ -93,8 +93,10 @@ impl<'c, 'd> Parser<'c, 'd> {
                     let mut decoder = decoder.scoped_decoder(shex.instruction_length as usize * 4);
 
                     while !decoder.eof() {
+                        let offset = decoder.get_offset();
                         let instruction = dr::Instruction::parse(&mut decoder);
-                        try_consume(self.consumer.consume_instruction(instruction))?;
+
+                        try_consume(self.consumer.consume_instruction(offset as u32, instruction))?;
                     }
                 },
                 _ => {

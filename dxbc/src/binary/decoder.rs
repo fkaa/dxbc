@@ -50,6 +50,10 @@ impl<'a> Decoder<'a> {
         self.offset += n;
     }
 
+    pub fn get_offset(&self) -> usize {
+        self.offset
+    }
+
     pub fn bytes(&mut self, n: usize) -> &'a [u8] {
         let slice = &self.bytes[self.offset..(self.offset + n)];
 

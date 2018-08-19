@@ -19,6 +19,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dxbcd"
+version = "0.1.0"
+dependencies = [
+ "dxbc 0.1.0",
+ "term 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "term"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
