@@ -256,6 +256,7 @@ impl TestBoolean {
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct OpcodeToken0<'a> {
+    // TODO: these should probably be slices
     pub word: *const u32,
     _phantom: PhantomData<&'a ()>,
 }

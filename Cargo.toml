@@ -6,4 +6,4 @@ members = [
 ]
 
 [replace]
-"winapi:0.3.4" = { path = "../winapi-rs" }
+"winapi:0.3.4" = { git = "https://github.com/fkaa/winapi-rs.git", branch = "wdk-tokenized-dxbc" }
