@@ -1,4 +1,4 @@
-use winapi::um::d3d11tokenizedprogramformat::*;
+use d3d11tokenizedprogramformat::*;
 
 use binary::*;
 
