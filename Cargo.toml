@@ -1,11 +1,9 @@
 [workspace]
 members = [
     "dxbc",
+    "dxbcc",
     "dxbcd",
 ]
 
 [replace]
 "winapi:0.3.4" = { path = "../winapi-rs" }
-
-
-

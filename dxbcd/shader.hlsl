@@ -11,7 +11,7 @@ struct VInput {
 
 struct VOutput {
     float4 pos : SV_Position;
-    float3 col : COLOR;
+    uint3 col : COLOR;
     float2 uv : TEXCOORD;
 };
 
@@ -20,11 +20,8 @@ SamplerState Sampler;
 
 VOutput vs(VInput input) {
     VOutput output;
-
     output.pos = mul(Projection, mul(View, mul(Model, float4(input.pos.xyz, 1))));
     output.uv = -abs(input.uv);
     output.col = saturate(Texture.SampleLevel(Sampler, float2(0,0), 0).rgb);
-
-
     return output;
 }

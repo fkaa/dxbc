@@ -219,6 +219,25 @@ impl OperandModifier {
 
 #[repr(u32)]
 #[derive(Debug)]
+pub enum SamplerMode {
+    Default,
+    Comparison,
+    Mono,
+}
+
+impl SamplerMode {
+    pub fn from_word(word: u32) -> Self {
+        match word {
+            0 => SamplerMode::Default,
+            1 => SamplerMode::Comparison,
+            2 => SamplerMode::Mono,
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[repr(u32)]
+#[derive(Debug)]
 pub enum TestBoolean {
     Zero,
     NonZero,
@@ -233,33 +252,6 @@ impl TestBoolean {
         }
     }
 }
-
-
-/*
-#[derive(Debug)]
-pub struct RawInstruction<'a> {
-    pub operand: OperandToken0,
-    pub immediate: Immediate<'a>,
-}
-
-impl<'a> RawInstruction<'a> {
-    pub fn parse<'b, 'c>(decoder: &'c mut decoder::Decoder<'b>) -> RawInstruction<'b> {
-        let operand = OperandToken0::from_word(decoder.read_u32());
-
-        let operand_ex = if operand.is_extended() {
-            Some(decoder.read_u32())
-        } else {
-            None
-        };
-
-        let immediate = Immediate::parse(operand, decoder);
-
-        RawInstruction {
-            operand,
-            immediate,
-        }
-    }
-}*/
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -306,16 +298,65 @@ impl<'a> OpcodeToken0<'a> {
     pub fn get_instruction_length(&self) -> u32 {
         DECODE_D3D10_SB_TOKENIZED_INSTRUCTION_LENGTH(unsafe { *self.word })
     }
+
+    pub fn get_resource_dimension(&self) -> ResourceDimension {
+        ResourceDimension::from_word(DECODE_D3D10_SB_RESOURCE_DIMENSION(unsafe { *(self.word.offset(0)) }))
+    }
+
+    pub fn get_sampler_mode(&self) -> SamplerMode {
+        SamplerMode::from_word(DECODE_D3D10_SB_SAMPLER_MODE(unsafe { *(self.word.offset(0)) }))
+    }
 }
 
 impl<'a> fmt::Debug for OpcodeToken0<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("OpcodeToken0")
+            .field("Raw", &unsafe { *self.word })
             .field("Type", &self.get_opcode_type())
             .field("InstructionLength", &self.get_instruction_length())
             .field("IsSaturated", &self.is_saturated())
             .field("TestType", &self.get_test_type())
+            .field("IsExtended", &self.is_extended())
             .finish()
+    }
+}
+
+#[repr(u32)]
+#[derive(Debug)]
+pub enum ResourceDimension {
+    Unknown = 0,
+    Buffer = 1,
+    Texture1D = 2,
+    Texture2D = 3,
+    Texture2DMS = 4,
+    Texture3D = 5,
+    TextureCube = 6,
+    Texture1DArray = 7,
+    Texture2DArray = 8,
+    Texture2DMSArray = 9,
+    TextureCubeArray = 10,
+    RawBuffer = 11,
+    StructuredBuffer = 12
+}
+
+impl ResourceDimension {
+    pub fn from_word(word: u32) -> Self {
+        match word {
+            0 => ResourceDimension::Unknown,
+            1 => ResourceDimension::Buffer,
+            2 => ResourceDimension::Texture1D,
+            3 => ResourceDimension::Texture2D,
+            4 => ResourceDimension::Texture2DMS,
+            5 => ResourceDimension::Texture3D,
+            6 => ResourceDimension::TextureCube,
+            7 => ResourceDimension::Texture1DArray,
+            8 => ResourceDimension::Texture2DArray,
+            9 => ResourceDimension::Texture2DMSArray,
+            10 => ResourceDimension::TextureCubeArray,
+            11 => ResourceDimension::RawBuffer,
+            12 => ResourceDimension::StructuredBuffer,
+            _ => unreachable!()
+        }
     }
 }
 
@@ -337,6 +378,57 @@ impl ExtendedOpcodeType {
             3 => ExtendedOpcodeType::ResourceReturnType,
             _ => unreachable!(),
         }
+    }
+}
+
+#[repr(u32)]
+#[derive(Debug)]
+pub enum ResourceReturnType {
+    Unorm = 1,
+    Snorm = 2,
+    Sint = 3,
+    Uint = 4,
+    Float = 5,
+    Mixed = 6,
+    Double = 7,
+    Continued = 8,
+    Unused = 9,
+}
+
+impl ResourceReturnType {
+    pub fn from_word(word: u32) -> Self {
+        match word {
+            1 => ResourceReturnType::Unorm,
+            2 => ResourceReturnType::Snorm,
+            3 => ResourceReturnType::Sint,
+            4 => ResourceReturnType::Uint,
+            5 => ResourceReturnType::Float,
+            6 => ResourceReturnType::Mixed,
+            7 => ResourceReturnType::Double,
+            8 => ResourceReturnType::Continued,
+            9 => ResourceReturnType::Unused,
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ResourceReturnTypeToken0<'a> {
+    pub word: *const u32,
+    _phantom: PhantomData<&'a ()>,
+}
+
+impl<'a> ResourceReturnTypeToken0<'a> {
+    pub fn from_word(word: *const u32) -> Self {
+        ResourceReturnTypeToken0 {
+            word,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn get_return_type(&self, name: ComponentName) -> ResourceReturnType {
+        ResourceReturnType::from_word(DECODE_D3D10_SB_RESOURCE_RETURN_TYPE(unsafe { *(self.word.offset(0)) }, name as u32))
     }
 }
 
@@ -385,6 +477,7 @@ impl<'a> fmt::Debug for OpcodeToken1<'a> {
         f.debug_struct("OpcodeToken1")
             .field("Type", &self.get_extended_opcode_type())
             .field("OpcodeModifier", &self.get_opcode_modifier())
+            .field("IsExtended", &self.is_extended())
             .finish()
     }
 }
@@ -424,7 +517,7 @@ impl<'a> OperandToken0<'a> {
         }
     }
 
-    pub fn parse<'b, 'c>(decoder: &'c mut decoder::Decoder<'b>) -> OperandToken0<'b> {
+    pub fn parse<'b>(decoder: &mut decoder::Decoder<'b>) -> OperandToken0<'b> {
         let operand = OperandToken0::from_word(decoder.read_u32_address());
 
         if operand.is_extended() {
@@ -687,6 +780,7 @@ use std::fmt;
 impl<'a> fmt::Debug for OperandToken0<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("OperandToken0")
+            .field("Raw", &unsafe { *self.word })
             .field("NumComponents", &self.get_num_components())
             .field("ComponentSelect", &self.get_component_select_mode())
             .field("ComponentMask", &self.get_component_mask())
@@ -694,6 +788,7 @@ impl<'a> fmt::Debug for OperandToken0<'a> {
             .field("OperandType", &self.get_operand_type())
             .field("IndexDimension", &self.get_index_dimension())
             .field("IndexRepresentation", &self.get_index_representation())
+            .field("Immediate", &self.get_immediate())
             .field("IsExtended", &self.is_extended())
             .finish()
     }
@@ -797,6 +892,35 @@ impl<'a> DclConstantBuffer<'a> {
 }
 
 #[derive(Debug)]
+pub struct DclResource<'a> {
+    pub register: OperandToken0<'a>,
+    pub return_type: ResourceReturnTypeToken0<'a>,
+}
+
+impl<'a> DclResource<'a> {
+    pub fn get_register(&self) -> u32 {
+        match self.register.get_immediate() {
+            Immediate::U32(reg) => reg[0],
+            _ => !0
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct DclSampler<'a> {
+    pub operand: OperandToken0<'a>,
+}
+
+impl<'a> DclSampler<'a> {
+    pub fn get_register(&self) -> u32 {
+        match self.operand.get_immediate() {
+            Immediate::U32(reg) => reg[0],
+            _ => !0
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct DclOutputSiv<'a> {
     pub operand: OperandToken0<'a>,
     pub operand_2: OperandToken0<'a>,
@@ -837,6 +961,13 @@ impl<'a> DclOutputSgv<'a> {
 #[derive(Debug)]
 pub struct DclTemps {
     pub register_count: u32,
+}
+
+#[derive(Debug)]
+pub struct Add<'a> {
+    pub dst: OperandToken0<'a>,
+    pub a: OperandToken0<'a>,
+    pub b: OperandToken0<'a>,
 }
 
 #[derive(Debug)]
@@ -908,15 +1039,18 @@ pub enum Operands<'a> {
     DclInput(DclInput<'a>),
     DclOutput(DclOutput<'a>),
     DclConstantBuffer(DclConstantBuffer<'a>),
+    DclResource(DclResource<'a>),
+    DclSampler(DclSampler<'a>),
     DclOutputSiv(DclOutputSiv<'a>),
     DclOutputSgv(DclOutputSgv<'a>),
     DclTemps(DclTemps),
+    Add(Add<'a>),
     Mul(Mul<'a>),
     Mad(Mad<'a>),
     Mov(Mov<'a>),
     SampleL(SampleL<'a>),
     Ret,
-    Unknown(u32, D3D10_SB_OPCODE_TYPE, u32)
+    Unknown
 }
 
 impl<'a> Instruction<'a> {
@@ -955,6 +1089,17 @@ impl<'a> Instruction<'a> {
                     access: DECODE_D3D10_SB_CONSTANT_BUFFER_ACCESS_PATTERN(unsafe { *opcode.word }),
                 })
             }
+            D3D10_SB_OPCODE_DCL_RESOURCE => {
+                Operands::DclResource(DclResource {
+                    register: OperandToken0::parse(decoder),
+                    return_type: ResourceReturnTypeToken0::from_word(decoder.read_u32_address()),
+                })
+            }
+            D3D10_SB_OPCODE_DCL_SAMPLER => {
+                Operands::DclSampler(DclSampler {
+                    operand: OperandToken0::parse(decoder),
+                })
+            }
             D3D10_SB_OPCODE_DCL_TEMPS => {
                 Operands::DclTemps(DclTemps {
                     register_count: decoder.read_u32(),
@@ -970,6 +1115,13 @@ impl<'a> Instruction<'a> {
                 Operands::DclOutputSgv(DclOutputSgv {
                     operand: OperandToken0::parse(decoder),
                     operand_2: OperandToken0::parse(decoder),
+                })
+            }
+            D3D10_SB_OPCODE_ADD => {
+                Operands::Add(Add {
+                    dst: OperandToken0::parse(decoder),
+                    a: OperandToken0::parse(decoder),
+                    b: OperandToken0::parse(decoder),
                 })
             }
             D3D10_SB_OPCODE_MUL => {
@@ -1010,7 +1162,7 @@ impl<'a> Instruction<'a> {
                     decoder.skip(4 * (len as usize  - 1));
                 }
 
-                Operands::Unknown(unsafe { *opcode.word }, ty, len)
+                Operands::Unknown
             }
         };
 

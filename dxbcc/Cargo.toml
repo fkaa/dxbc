@@ -1,0 +1,11 @@
+[package]
+name = "dxbcc"
+version = "0.1.0"
+authors = ["Felix Kaaman <trundmatu@gmail.com>"]
+
+[dependencies]
+dxbc = { path = "../dxbc" }
+
+[dev-dependencies]
+byteorder = "1"
+rspirv = "0.5"
