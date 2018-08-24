@@ -8,6 +8,7 @@ use std::mem;
 
 struct DisasmConsumer {
     out: Box<term::StdoutTerminal>,
+    indent: u32,
 }
 
 const COMMENT_COLOR: term::color::Color = term::color::BRIGHT_BLACK;
@@ -17,34 +18,43 @@ const IMMEDIATE_COLOR: term::color::Color = term::color::BRIGHT_BLACK;
 impl DisasmConsumer {
     fn new() -> Self {
         Self {
-            out: term::stdout().unwrap()
+            out: term::stdout().unwrap(),
+            indent: 0,
         }
     }
 
-    fn write_instruction<'a>(&mut self, opcode: OpcodeToken0<'a>, offset: u32, instruction: &str) {
+    fn begin_instruction<'a>(&mut self, opcode: OpcodeToken0<'a>, offset: u32, instruction: &str) {
         self.out.fg(COMMENT_COLOR).unwrap();
         write!(self.out, "{:#08x}: ", offset).unwrap();
         self.out.reset().unwrap();
 
-        self.out.fg(OPCODE_COLOR).unwrap();
-        write!(self.out, "{}", instruction).unwrap();
-        if opcode.is_saturated() {
-            write!(self.out, "_sat").unwrap();
+        if self.indent > 0 {
+            write!(self.out, "{}", "  ".repeat(self.indent as usize)).unwrap();
         }
 
-        write!(self.out, "{}", match opcode.get_resource_dimension() {
-            ResourceDimension::Texture2D => "_texture2d",
-            _ => "",
-        }).unwrap();
+        self.out.fg(OPCODE_COLOR).unwrap();
+        write!(self.out, "{}", instruction).unwrap();
+    }
+
+    fn end_instruction(&mut self) {
+        self.out.reset().unwrap();
+
+        write!(self.out, " ").unwrap();
+    }
+
+    fn write_instruction<'a>(&mut self, opcode: OpcodeToken0<'a>, offset: u32, instruction: &str) {
+        self.begin_instruction(opcode, offset, instruction);
+        //if opcode.is_saturated() {
+        //    write!(self.out, "_sat").unwrap();
+        //}
 
         let mut ex = opcode.get_extended_opcode();
         while let Some(opcode) = ex {
             // TODO:
             ex = opcode.get_extended_opcode();
         }
-        self.out.reset().unwrap();
 
-        write!(self.out, " ").unwrap();
+        self.end_instruction();
     }
 
     fn write_resource_return_type<'a>(&mut self, opcode: OpcodeToken0<'a>, return_type: ResourceReturnTypeToken0<'a>) {
@@ -371,7 +381,27 @@ impl Consumer for DisasmConsumer {
             }
             DclInput(input) => {
                 self.write_instruction(opcode, offset, "dcl_input");
-                write!(self.out, "v{}.", input.get_input_register()).unwrap();
+                match input.operand.get_operand_type() {
+
+                    OperandType::Input => { write!(self.out, "v{}.", input.get_input_register()).unwrap(); }
+                    OperandType::InputCoverageMask => {
+                        write!(self.out, "vCoverage").unwrap();
+                    }
+                    _ => { write!(self.out, "TODO").unwrap(); }
+                };
+                self.write_mask(input.operand.get_component_mask());
+                writeln!(self.out, "").unwrap();
+            }
+            DclInputPs(input) => {
+                self.write_instruction(opcode, offset, "dcl_input_ps");
+                match input.operand.get_operand_type() {
+
+                    OperandType::Input => { write!(self.out, "v{}.", input.get_input_register()).unwrap(); }
+                    OperandType::InputCoverageMask => {
+                        write!(self.out, "vCoverage").unwrap();
+                    }
+                    _ => { write!(self.out, "TODO").unwrap(); }
+                };
                 self.write_mask(input.operand.get_component_mask());
                 writeln!(self.out, "").unwrap();
             }
@@ -387,7 +417,16 @@ impl Consumer for DisasmConsumer {
                 writeln!(self.out, "CB{}[{}], {:?}", cb.get_binding(), cb.get_size(), cb.get_access_pattern()).unwrap();
             }
             DclResource(resource) => {
-                self.write_instruction(opcode, offset, "dcl_resource");
+                self.begin_instruction(opcode, offset, "dcl_resource");
+                write!(self.out, "{}", match opcode.get_resource_dimension() {
+                    ResourceDimension::Texture1D => "_texture1d",
+                    ResourceDimension::Texture2D => "_texture2d",
+                    ResourceDimension::Texture3D => "_texture3d",
+                    ResourceDimension::TextureCube => "_texturecube",
+                    ResourceDimension::Texture2DMS => "_texture2dms",
+                    _ => "",
+                }).unwrap();
+                self.end_instruction();
 
                 // TODO: resource dim
 
@@ -429,6 +468,19 @@ impl Consumer for DisasmConsumer {
                 self.write_instruction(opcode, offset, "mov");
                 self.write_operands(&[mov.dst, mov.src]);
             }
+            Utof(utof) => {
+                self.write_instruction(opcode, offset, "utof");
+                self.write_operands(&[utof.dst, utof.src]);
+            }
+
+            Loop => {
+                self.write_instruction(opcode, offset, "loop");
+                self.indent += 1;
+            }
+            EndLoop => {
+                self.indent -= 1;
+                self.write_instruction(opcode, offset, "endloop");
+            }
             SampleL(sample) => {
                 self.write_instruction(opcode, offset, "sample_l");
                 self.write_operands(&[sample.dst, sample.src_address, sample.src_resource, sample.src_sampler, sample.src_lod]);
@@ -454,7 +506,7 @@ impl Consumer for DisasmConsumer {
 }
 
 fn main() {
-    let shader_bytes = include_bytes!("..\\shader.dxbc");
+    let shader_bytes = include_bytes!("..\\complex_shader.dxbc");
 
     let mut consumer = DisasmConsumer::new();
     let mut parser = Parser::new(shader_bytes, &mut consumer);

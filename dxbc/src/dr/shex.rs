@@ -849,6 +849,20 @@ impl<'a> DclInput<'a> {
 }
 
 #[derive(Debug)]
+pub struct DclInputPs<'a> {
+    pub operand: OperandToken0<'a>,
+}
+
+impl<'a> DclInputPs<'a> {
+    pub fn get_input_register(&self) -> u32 {
+        match self.operand.get_immediate() {
+            Immediate::U32(reg) => reg[0],
+            _ => !0
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct DclOutput<'a> {
     pub operand: OperandToken0<'a>,
 }
@@ -993,6 +1007,18 @@ pub struct Mov<'a> {
 }
 
 #[derive(Debug)]
+pub struct Utof<'a> {
+    pub dst: OperandToken0<'a>,
+    pub src: OperandToken0<'a>,
+}
+
+#[derive(Debug)]
+pub struct Loop;
+
+#[derive(Debug)]
+pub struct EndLoop;
+
+#[derive(Debug)]
 pub struct SampleL<'a> {
     pub dst: OperandToken0<'a>,
     pub src_address: OperandToken0<'a>,
@@ -1038,6 +1064,7 @@ pub struct Instruction<'a> {
 pub enum Operands<'a> {
     DclGlobalFlags(DclGlobalFlags),
     DclInput(DclInput<'a>),
+    DclInputPs(DclInputPs<'a>),
     DclOutput(DclOutput<'a>),
     DclConstantBuffer(DclConstantBuffer<'a>),
     DclResource(DclResource<'a>),
@@ -1049,6 +1076,9 @@ pub enum Operands<'a> {
     Mul(Mul<'a>),
     Mad(Mad<'a>),
     Mov(Mov<'a>),
+    Utof(Utof<'a>),
+    Loop,
+    EndLoop,
     SampleL(SampleL<'a>),
     Ret,
     Unknown
@@ -1076,6 +1106,11 @@ impl<'a> Instruction<'a> {
             }
             D3D10_SB_OPCODE_DCL_INPUT => {
                 Operands::DclInput(DclInput {
+                    operand: OperandToken0::parse(decoder),
+                })
+            }
+            D3D10_SB_OPCODE_DCL_INPUT_PS => {
+                Operands::DclInputPs(DclInputPs {
                     operand: OperandToken0::parse(decoder),
                 })
             }
@@ -1145,6 +1180,18 @@ impl<'a> Instruction<'a> {
                     dst: OperandToken0::parse(decoder),
                     src: OperandToken0::parse(decoder),
                 })
+            }
+            D3D10_SB_OPCODE_UTOF => {
+                Operands::Utof(Utof {
+                    dst: OperandToken0::parse(decoder),
+                    src: OperandToken0::parse(decoder),
+                })
+            }
+            D3D10_SB_OPCODE_LOOP => {
+                Operands::Loop
+            }
+            D3D10_SB_OPCODE_ENDLOOP => {
+                Operands::EndLoop
             }
             D3D10_SB_OPCODE_SAMPLE_L => {
                 Operands::SampleL(SampleL {
