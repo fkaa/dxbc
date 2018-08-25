@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Felix Kaaman <trundmatu@gmail.com>"]
 
 [dependencies]
+byteorder = "1"
 dxbc = { path = "../dxbc" }
 
 [dev-dependencies]

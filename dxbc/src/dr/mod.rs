@@ -24,7 +24,7 @@ pub use self::shex::*;
 #[derive(Debug)]
 pub struct DxbcHeader {
     pub magic: [u8; 4],
-    pub checksum: [u8; 16],
+    pub checksum: [u32; 4],
     _unknown: u8,
     pub size: u32,
     pub chunk_count: u32,

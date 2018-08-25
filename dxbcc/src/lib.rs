@@ -20,12 +20,12 @@ pub struct DxbcModule {
 impl DxbcModule {
     pub fn new() -> Self {
         DxbcModule {
-
+            dwords: Vec::new()
         }
     }
 
     pub(crate) fn write_u32(&mut self, val: u32) {
-        self.dwords.write_u32::<LittleEndian>(val).unwrap();
+        self.dwords.push(val);
     }
 
 }
@@ -57,24 +57,25 @@ impl<'a> Builder<'a> {
     }
 
     pub fn module(&self) -> Result<DxbcModule, ()> {
-        let module = DxbcModule::new();
+        let mut module = DxbcModule::new();
 
+        module.write_u32(DXBC_MAGIC);
+        module.write_u32(0);
 
-        dwords.write_u32(DXBC_MAGIC);
-        dwords.write_u32(0);
-
-        if let Some(rdef) = self.rdef {
+        if let Some(ref rdef) = self.rdef {
             // TODO: rdef chunk
 
-            dwords.write_u32(RDEF_MAGIC);
-            dwords.write_u32(0);
+            module.write_u32(RDEF_MAGIC);
+            module.write_u32(0);
             // dwords.write_u32(rdef_chunk.len());
 
-            dwords.write_u32_slice(rdef_chunk);
+            //module.dwords.write_u32_slice(rdef_chunk);
         }
 
-        dwords.write_u32(RDEF_MAGIC);
-        dwords.write_u32(rdef_chunk.len());
+        module.write_u32(RDEF_MAGIC);
+        //module.dwords.write_u32(rdef_chunk.len());
+        //
+        Err(())
     }
 }
 

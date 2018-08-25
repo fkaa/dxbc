@@ -307,6 +307,10 @@ impl<'a> OpcodeToken0<'a> {
     pub fn get_sampler_mode(&self) -> SamplerMode {
         SamplerMode::from_word(DECODE_D3D10_SB_SAMPLER_MODE(unsafe { *(self.word.offset(0)) }))
     }
+
+    pub fn get_interpolation_mode(&self) -> InterpolationMode {
+        InterpolationMode::from_word(DECODE_D3D10_SB_INPUT_INTERPOLATION_MODE(unsafe { *self.word }))
+    }
 }
 
 impl<'a> fmt::Debug for OpcodeToken0<'a> {
@@ -319,6 +323,27 @@ impl<'a> fmt::Debug for OpcodeToken0<'a> {
             .field("TestType", &self.get_test_type())
             .field("IsExtended", &self.is_extended())
             .finish()
+    }
+}
+
+#[repr(u32)]
+#[derive(Debug)]
+pub enum InterpolationMode {
+    Undefined = 0,
+    Constant = 1,
+    Linear = 2,
+    LinearCentroid = 3,
+    LinearNoPerspective = 4,
+    LinearNoPerspectiveCentroid = 5,
+    LinearSample = 6,
+    LinearNoPerspectiveSample = 7,
+}
+
+impl InterpolationMode {
+    pub fn from_word(word: u32) -> Self {
+        assert!(word <= InterpolationMode::LinearNoPerspectiveSample as u32);
+
+        unsafe { mem::transmute(word) }
     }
 }
 
@@ -973,13 +998,67 @@ impl<'a> DclOutputSgv<'a> {
     }
 }
 
+
+
+#[derive(Debug)]
+pub struct DclInputPsSiv<'a> {
+    pub operand: OperandToken0<'a>,
+    pub operand_2: OperandToken0<'a>,
+}
+
+impl<'a> DclInputPsSiv<'a> {
+    pub fn get_input_register(&self) -> u32 {
+        match self.operand.get_immediate() {
+            Immediate::U32(reg) => reg[0],
+            _ => !0
+        }
+    }
+
+    pub fn get_system_name(&self) -> NameToken {
+        NameToken::from_word(DECODE_D3D10_SB_NAME(unsafe { *self.operand_2.word }))
+    }
+}
+
+#[derive(Debug)]
+pub struct DclInputPsSgv<'a> {
+    pub operand: OperandToken0<'a>,
+    pub operand_2: OperandToken0<'a>,
+}
+
+impl<'a> DclInputPsSgv<'a> {
+    pub fn get_input_register(&self) -> u32 {
+        match self.operand.get_immediate() {
+            Immediate::U32(reg) => reg[0],
+            _ => !0
+        }
+    }
+
+    pub fn get_system_name(&self) -> NameToken {
+        NameToken::from_word(DECODE_D3D10_SB_NAME(unsafe { *self.operand_2.word }))
+    }
+}
+
 #[derive(Debug)]
 pub struct DclTemps {
     pub register_count: u32,
 }
 
 #[derive(Debug)]
+pub struct DclIndexableTemp {
+    pub register_index: u32,
+    pub register_count: u32,
+    pub num_components: u32,
+}
+
+#[derive(Debug)]
 pub struct Add<'a> {
+    pub dst: OperandToken0<'a>,
+    pub a: OperandToken0<'a>,
+    pub b: OperandToken0<'a>,
+}
+
+#[derive(Debug)]
+pub struct And<'a> {
     pub dst: OperandToken0<'a>,
     pub a: OperandToken0<'a>,
     pub b: OperandToken0<'a>,
@@ -1007,7 +1086,19 @@ pub struct Mov<'a> {
 }
 
 #[derive(Debug)]
+pub struct Itof<'a> {
+    pub dst: OperandToken0<'a>,
+    pub src: OperandToken0<'a>,
+}
+
+#[derive(Debug)]
 pub struct Utof<'a> {
+    pub dst: OperandToken0<'a>,
+    pub src: OperandToken0<'a>,
+}
+
+#[derive(Debug)]
+pub struct Ftou<'a> {
     pub dst: OperandToken0<'a>,
     pub src: OperandToken0<'a>,
 }
@@ -1017,6 +1108,16 @@ pub struct Loop;
 
 #[derive(Debug)]
 pub struct EndLoop;
+
+#[derive(Debug)]
+pub struct BreakC<'a> {
+    pub src: OperandToken0<'a>,
+}
+
+#[derive(Debug)]
+pub struct If<'a> {
+    pub src: OperandToken0<'a>,
+}
 
 #[derive(Debug)]
 pub struct SampleL<'a> {
@@ -1071,14 +1172,25 @@ pub enum Operands<'a> {
     DclSampler(DclSampler<'a>),
     DclOutputSiv(DclOutputSiv<'a>),
     DclOutputSgv(DclOutputSgv<'a>),
+    DclInputPsSiv(DclInputPsSiv<'a>),
+    DclInputPsSgv(DclInputPsSgv<'a>),
     DclTemps(DclTemps),
+    DclIndexableTemp(DclIndexableTemp),
     Add(Add<'a>),
+    And(And<'a>),
     Mul(Mul<'a>),
     Mad(Mad<'a>),
     Mov(Mov<'a>),
+    Itof(Itof<'a>),
     Utof(Utof<'a>),
+    Ftou(Ftou<'a>),
+    If(If<'a>),
+    Else,
+    EndIf,
     Loop,
     EndLoop,
+    Break,
+    BreakC(BreakC<'a>),
     SampleL(SampleL<'a>),
     Ret,
     Unknown
@@ -1114,6 +1226,18 @@ impl<'a> Instruction<'a> {
                     operand: OperandToken0::parse(decoder),
                 })
             }
+            D3D10_SB_OPCODE_DCL_INPUT_PS_SIV => {
+                Operands::DclInputPsSiv(DclInputPsSiv {
+                    operand: OperandToken0::parse(decoder),
+                    operand_2: OperandToken0::parse(decoder),
+                })
+            }
+            D3D10_SB_OPCODE_DCL_INPUT_PS_SGV => {
+                Operands::DclInputPsSgv(DclInputPsSgv {
+                    operand: OperandToken0::parse(decoder),
+                    operand_2: OperandToken0::parse(decoder),
+                })
+            }
             D3D10_SB_OPCODE_DCL_OUTPUT => {
                 Operands::DclOutput(DclOutput {
                     operand: OperandToken0::parse(decoder),
@@ -1141,6 +1265,13 @@ impl<'a> Instruction<'a> {
                     register_count: decoder.read_u32(),
                 })
             }
+            D3D10_SB_OPCODE_DCL_INDEXABLE_TEMP => {
+                Operands::DclIndexableTemp(DclIndexableTemp {
+                    register_index: decoder.read_u32(),
+                    register_count: decoder.read_u32(),
+                    num_components: decoder.read_u32(),
+                })
+            }
             D3D10_SB_OPCODE_DCL_OUTPUT_SIV => {
                 Operands::DclOutputSiv(DclOutputSiv {
                     operand: OperandToken0::parse(decoder),
@@ -1155,6 +1286,13 @@ impl<'a> Instruction<'a> {
             }
             D3D10_SB_OPCODE_ADD => {
                 Operands::Add(Add {
+                    dst: OperandToken0::parse(decoder),
+                    a: OperandToken0::parse(decoder),
+                    b: OperandToken0::parse(decoder),
+                })
+            }
+            D3D10_SB_OPCODE_AND => {
+                Operands::And(And {
                     dst: OperandToken0::parse(decoder),
                     a: OperandToken0::parse(decoder),
                     b: OperandToken0::parse(decoder),
@@ -1181,17 +1319,48 @@ impl<'a> Instruction<'a> {
                     src: OperandToken0::parse(decoder),
                 })
             }
+            D3D10_SB_OPCODE_ITOF => {
+                Operands::Itof(Itof {
+                    dst: OperandToken0::parse(decoder),
+                    src: OperandToken0::parse(decoder),
+                })
+            }
             D3D10_SB_OPCODE_UTOF => {
                 Operands::Utof(Utof {
                     dst: OperandToken0::parse(decoder),
                     src: OperandToken0::parse(decoder),
                 })
             }
+            D3D10_SB_OPCODE_FTOU => {
+                Operands::Ftou(Ftou {
+                    dst: OperandToken0::parse(decoder),
+                    src: OperandToken0::parse(decoder),
+                })
+            }
+            D3D10_SB_OPCODE_IF => {
+                Operands::If(If {
+                    src: OperandToken0::parse(decoder),
+                })
+            }
+            D3D10_SB_OPCODE_ELSE => {
+                Operands::Else
+            }
+            D3D10_SB_OPCODE_ENDIF => {
+                Operands::EndIf
+            }
             D3D10_SB_OPCODE_LOOP => {
                 Operands::Loop
             }
             D3D10_SB_OPCODE_ENDLOOP => {
                 Operands::EndLoop
+            }
+            D3D10_SB_OPCODE_BREAK => {
+                Operands::Break
+            }
+            D3D10_SB_OPCODE_BREAKC => {
+                Operands::BreakC(BreakC {
+                    src: OperandToken0::parse(decoder),
+                })
             }
             D3D10_SB_OPCODE_SAMPLE_L => {
                 Operands::SampleL(SampleL {

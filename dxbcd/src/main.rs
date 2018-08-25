@@ -12,8 +12,45 @@ struct DisasmConsumer {
 }
 
 const COMMENT_COLOR: term::color::Color = term::color::BRIGHT_BLACK;
-const OPCODE_COLOR: term::color::Color = term::color::BRIGHT_YELLOW;
+const OPCODE_COLOR: term::color::Color = term::color::BLUE;
 const IMMEDIATE_COLOR: term::color::Color = term::color::BRIGHT_BLACK;
+
+fn get_name_token_name(mode: NameToken) -> &'static str {
+    match mode {
+        NameToken::Undefined => "undefined",
+        NameToken::Position => "position",
+        NameToken::ClipDistance => "clip_distance",
+        NameToken::CullDistance => "cull_distance",
+        NameToken::RenderTargetArrayIndex => "rendertarget_array_index",
+        NameToken::ViewportArrayIndex => "viewport_array_index",
+        NameToken::VertexId => "vertex_id",
+        NameToken::PrimitiveId => "primitive_id",
+        NameToken::InstanceId => "instance_id",
+        NameToken::IsFrontFace => "is_front_face",
+        NameToken::SampleIndex => "sampleIndex",
+        _ => "TODO"
+    }
+}
+
+fn get_interpolation_mode_name(mode: InterpolationMode) -> &'static str {
+    match mode {
+        InterpolationMode::Undefined => "undefined",
+        InterpolationMode::Constant => "constant",
+        InterpolationMode::Linear => "linear",
+        InterpolationMode::LinearCentroid => "linear centroid",
+        InterpolationMode::LinearNoPerspective => "linear noperspective",
+        InterpolationMode::LinearNoPerspectiveCentroid => "linear noperspective centroid",
+        InterpolationMode::LinearSample => "linear sample",
+        InterpolationMode::LinearNoPerspectiveSample => "linear noperspective sample",
+    }
+}
+
+fn get_test_boolean_name(test: TestBoolean) -> &'static str {
+    match test {
+        TestBoolean::Zero => "z",
+        TestBoolean::NonZero => "nz",
+    }
+}
 
 impl DisasmConsumer {
     fn new() -> Self {
@@ -394,6 +431,9 @@ impl Consumer for DisasmConsumer {
             }
             DclInputPs(input) => {
                 self.write_instruction(opcode, offset, "dcl_input_ps");
+
+                write!(self.out, "{} ", get_interpolation_mode_name(opcode.get_interpolation_mode())).unwrap();
+
                 match input.operand.get_operand_type() {
 
                     OperandType::Input => { write!(self.out, "v{}.", input.get_input_register()).unwrap(); }
@@ -403,6 +443,39 @@ impl Consumer for DisasmConsumer {
                     _ => { write!(self.out, "TODO").unwrap(); }
                 };
                 self.write_mask(input.operand.get_component_mask());
+                writeln!(self.out, "").unwrap();
+            }
+            DclInputPsSiv(input) => {
+                self.write_instruction(opcode, offset, "dcl_input_ps_siv");
+                write!(self.out, "{} ", get_interpolation_mode_name(opcode.get_interpolation_mode())).unwrap();
+                match input.operand.get_operand_type() {
+
+                    OperandType::Input => { write!(self.out, "v{}.", input.get_input_register()).unwrap(); }
+                    OperandType::InputCoverageMask => {
+                        write!(self.out, "vCoverage").unwrap();
+                    }
+                    _ => { write!(self.out, "TODO").unwrap(); }
+                };
+                self.write_mask(input.operand.get_component_mask());
+
+                write!(self.out, " {}", get_name_token_name(input.get_system_name())).unwrap();
+
+                writeln!(self.out, "").unwrap();
+            }
+            DclInputPsSgv(input) => {
+                self.write_instruction(opcode, offset, "dcl_input_ps_sgv");
+                write!(self.out, "{} ", get_interpolation_mode_name(opcode.get_interpolation_mode())).unwrap();
+                match input.operand.get_operand_type() {
+
+                    OperandType::Input => { write!(self.out, "v{}.", input.get_input_register()).unwrap(); }
+                    OperandType::InputCoverageMask => {
+                        write!(self.out, "vCoverage").unwrap();
+                    }
+                    _ => { write!(self.out, "TODO").unwrap(); }
+                };
+                self.write_mask(input.operand.get_component_mask());
+
+                write!(self.out, " {}", get_name_token_name(input.get_system_name())).unwrap();
                 writeln!(self.out, "").unwrap();
             }
             DclOutput(output) => {
@@ -446,6 +519,11 @@ impl Consumer for DisasmConsumer {
 
                 writeln!(self.out, "{}", temps.register_count).unwrap();
             }
+            DclIndexableTemp(temps) => {
+                self.write_instruction(opcode, offset, "dcl_indexableTemp");
+
+                writeln!(self.out, "X{}[{}], {}", temps.register_index, temps.register_count, temps.num_components).unwrap();
+            }
             DclOutputSiv(siv) => {
                 self.write_instruction(opcode, offset, "dcl_output_siv");
                 write!(self.out, "o{}.", siv.get_output_register()).unwrap();
@@ -455,6 +533,10 @@ impl Consumer for DisasmConsumer {
             Add(add) => {
                 self.write_instruction(opcode, offset, "add");
                 self.write_operands(&[add.dst, add.a, add.b]);
+            },
+            And(and) => {
+                self.write_instruction(opcode, offset, "and");
+                self.write_operands(&[and.dst, and.a, and.b]);
             },
             Mul(mul) => {
                 self.write_instruction(opcode, offset, "mul");
@@ -468,27 +550,67 @@ impl Consumer for DisasmConsumer {
                 self.write_instruction(opcode, offset, "mov");
                 self.write_operands(&[mov.dst, mov.src]);
             }
+            Itof(itof) => {
+                self.write_instruction(opcode, offset, "itof");
+                self.write_operands(&[itof.dst, itof.src]);
+            }
             Utof(utof) => {
                 self.write_instruction(opcode, offset, "utof");
                 self.write_operands(&[utof.dst, utof.src]);
+            }
+            Ftou(ftou) => {
+                self.write_instruction(opcode, offset, "ftou");
+                self.write_operands(&[ftou.dst, ftou.src]);
+            }
+            If(i) => {
+                self.begin_instruction(opcode, offset, "if");
+                write!(self.out, "_{}", get_test_boolean_name(opcode.get_test_type())).unwrap();
+                self.end_instruction();
+                self.write_operands(&[i.src]);
+
+                self.indent += 1;
+            }
+            Else => {
+                self.indent -= 1;
+                self.write_instruction(opcode, offset, "else");
+                self.indent += 1;
+
+                writeln!(self.out, "").unwrap();
+            }
+            EndIf => {
+                self.indent -= 1;
+                self.write_instruction(opcode, offset, "endif");
+
+                writeln!(self.out, "").unwrap();
             }
 
             Loop => {
                 self.write_instruction(opcode, offset, "loop");
                 self.indent += 1;
+
+                writeln!(self.out, "").unwrap();
             }
             EndLoop => {
                 self.indent -= 1;
                 self.write_instruction(opcode, offset, "endloop");
+
+                writeln!(self.out, "").unwrap();
+            }
+            Break => {
+                self.write_instruction(opcode, offset, "break");
+
+                writeln!(self.out, "").unwrap();
+            }
+            BreakC(breakc) => {
+                self.begin_instruction(opcode, offset, "breakc");
+                write!(self.out, "_{}", get_test_boolean_name(opcode.get_test_type())).unwrap();
+                self.end_instruction();
+
+                self.write_operands(&[breakc.src]);
             }
             SampleL(sample) => {
                 self.write_instruction(opcode, offset, "sample_l");
                 self.write_operands(&[sample.dst, sample.src_address, sample.src_resource, sample.src_sampler, sample.src_lod]);
-                //println!("{:#?}", sample.dst);
-                //println!("{:#?}", sample.src_address);
-                //println!("{:#?}", sample.src_resource);
-                //println!("{:#?}", sample.src_sampler);
-                //println!("{:#?}", sample.src_lod);
             }
             Ret => {
                 self.write_instruction(opcode, offset, "ret");
@@ -506,7 +628,12 @@ impl Consumer for DisasmConsumer {
 }
 
 fn main() {
-    let shader_bytes = include_bytes!("..\\complex_shader.dxbc");
+    let mut shader_bytes = include_bytes!("..\\shader.dxbc");
+
+    let start = 0x4;
+    println!("Real Checksum: {:?}", unsafe { ::std::slice::from_raw_parts(&shader_bytes[start..(start+16)] as *const _ as *const u32, 4) });
+    println!("");
+    println!("???? Checksum: {:?}", dxbc::checksum(shader_bytes));
 
     let mut consumer = DisasmConsumer::new();
     let mut parser = Parser::new(shader_bytes, &mut consumer);
