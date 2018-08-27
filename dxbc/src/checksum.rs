@@ -28,7 +28,6 @@ pub fn checksum(module: &[u8]) -> [u32; 4] {
     } else {
         cxt.consume(unsafe { ::std::slice::from_raw_parts(&bits as *const u32 as *const u8, 4) });
 
-        println!("cz={}, psz={}", last_chunk_sz, padding_sz);
         if last_chunk_sz != 0 {
             cxt.consume(&last_data[..last_chunk_sz as usize]);
         }

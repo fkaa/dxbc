@@ -1,4 +1,4 @@
-cbuffer Constants {
+/*cbuffer Constants {
     float4x4 Model;
     float4x4 View;
     float4x4 Projection;
@@ -24,4 +24,8 @@ VOutput vs(VInput input) {
     output.uv = -abs(input.uv);
     output.col = saturate(Texture.SampleLevel(Sampler, float2(0,0), 0).rgb);
     return output;
+}*/
+
+float4 vs() : SV_Position {
+    return 1.0.xxxx;
 }
