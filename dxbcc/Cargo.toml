@@ -10,3 +10,4 @@ dxbc = { path = "../dxbc" }
 [dev-dependencies]
 byteorder = "1"
 rspirv = "0.5"
+pretty-hex = "0.1"

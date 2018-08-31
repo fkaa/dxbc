@@ -3,10 +3,10 @@ extern crate byteorder;
 
 use byteorder::{ByteOrder, LittleEndian};
 
-const DXBC_MAGIC: u32 = 0x44584243;
-const RDEF_MAGIC: u32 = 0x52444546;
-const ISGN_MAGIC: u32 = 0x4953574e;
-const OSGN_MAGIC: u32 = 0x4f53474e;
+const DXBC_MAGIC: u32 = 0x43425844;
+const RDEF_MAGIC: u32 = 0x46454452;
+const ISGN_MAGIC: u32 = 0x4e475349;
+const OSGN_MAGIC: u32 = 0x4e47534f;
 
 pub struct Builder<'a> {
     rdef: Option<dxbc::dr::RdefChunk<'a>>,
@@ -47,10 +47,10 @@ impl DxbcModule {
 
         for chunk in text.as_bytes().chunks(4) {
             let data = match chunk {
-                &[a, b, c, d] => ((a as u32) << 24) | ((b as u32) << 16) | ((c as u32) << 8) | d as u32,
-                &[a, b, c] => ((a as u32) << 24) | ((b as u32) << 16) | ((c  as u32) << 8),
-                &[a, b] => ((a as u32) << 24) | ((b as u32) << 16),
-                &[a] => (a as u32) << 24,
+                &[d, c, b, a] => ((a as u32) << 24) | ((b as u32) << 16) | ((c as u32) << 8) | d as u32,
+                &[c, b, a] => ((a as u32) << 16) | ((b as u32) << 8) | (c as u32),
+                &[b, a] => ((a as u32) << 8) | (b as u32),
+                &[a] => a as u32,
                 _ => unreachable!()
             };
 
@@ -70,7 +70,28 @@ impl DxbcModule {
     }
 
     pub fn write_iosgn(&mut self, chunk: &dxbc::dr::IOsgnChunk, magic: u32) {
+        self.write_u32(magic);
+        let chunk_sz_pos = self.position();
+        self.write_u32(0);
+        let chunk_start = self.position();
 
+        let mut string_positions = Vec::new();
+        for element in &chunk.elements {
+            string_positions.push(self.position());
+            self.write_u32(element.semantic_index);
+            self.write_u32(element.semantic_type);
+            self.write_u32(element.component_type);
+            self.write_u32(element.register);
+            let mask_tok = ((element.rw_mask as u32) << 8) | (element.component_mask as u32);
+            self.write_u32(mask_tok);
+
+        }
+
+        for (element, pos) in chunk.elements.iter().zip(string_positions) {
+            let name_offset = self.position() - chunk_start;
+            self.set_u32(pos, name_offset as u32);
+            self.write_str(element.name);
+        }
     }
 
     pub fn write_isgn(&mut self, chunk: &dxbc::dr::IOsgnChunk) {
@@ -127,9 +148,9 @@ impl<'a> Builder<'a> {
         module.write_u32(0);
         module.write_u32(0);
         let size_pos = module.position();
+        module.write_u32(0);
 
         let mut chunk_count = 0;
-        
 
         for _ in 0..chunk_count {
             module.write_u32(0);
@@ -170,6 +191,13 @@ impl<'a> Builder<'a> {
             let author_loc = (module.position() - chunk_start) as u32;
             module.set_u32(author_pos, author_loc);
             module.write_str(rdef.author);
+
+            let end_pos = module.position();
+            module.set_u32(rdef_size_pos, (end_pos - chunk_start) as u32);
+        }
+
+        if let Some(ref isgn) = self.isgn {
+            module.write_isgn(isgn);
         }
 
         if let Some(ref osgn) = self.osgn {
@@ -185,7 +213,7 @@ impl<'a> Builder<'a> {
         module.set_u32(checksum_pos + 2, checksum[2]);
         module.set_u32(checksum_pos + 3, checksum[3]);
 
-        Err(())
+        Ok(module)
     }
 }
 
