@@ -34,6 +34,7 @@ pub trait Consumer {
     fn consume_isgn(&mut self, isgn: &dr::IOsgnChunk) -> Action { Action::Continue }
     fn consume_osgn(&mut self, osgn: &dr::IOsgnChunk) -> Action { Action::Continue }
     fn consume_shex(&mut self, osgn: &dr::ShexHeader) -> Action { Action::Continue }
+    fn consume_stat(&mut self, osgn: &dr::IStatChunk) -> Action { Action::Continue }
     fn consume_instruction(&mut self, offset: u32, instruction: dr::Instruction) -> Action { Action::Continue }
 }
 
@@ -99,6 +100,10 @@ impl<'c, 'd> Parser<'c, 'd> {
                         try_consume(self.consumer.consume_instruction(offset as u32, instruction))?;
                     }
                 },
+                b"STAT" => {
+                    let stat = dr::IStatChunk::parse(&mut decoder)?;
+                    try_consume(self.consumer.consume_stat(&stat))?;
+                }
                 _ => {
                     eprintln!(
                         "{}: Incorrect or unimplemented chunk type '{}'",
