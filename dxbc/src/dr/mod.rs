@@ -15,10 +15,13 @@ pub enum ResourceReturnType {
 pub mod rdef;
 pub mod isgn;
 pub mod shex;
+pub mod stat;
 
 pub use self::rdef::*;
 pub use self::isgn::*;
 pub use self::shex::*;
+pub use self::stat::*;
+
 
 #[repr(C)]
 #[derive(Debug)]
