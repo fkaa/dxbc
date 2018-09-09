@@ -26,6 +26,24 @@ VOutput vs(VInput input) {
     return output;
 }*/
 
-float4 vs() : SV_Position {
-    return 1.0.xxxx;
+struct PSInput
+{
+	float4 color : COLOR;
+    float2 uv : UV;
+};
+
+cbuffer CB : register(b0) {
+    float4 A[10];
+}
+
+Texture2D T : register(t0);
+SamplerState S : register(s0);
+
+float2 vs(PSInput input) : SV_TARGET0
+{
+    int a = input.uv.y * int(input.uv.x);
+    int b = input.uv.y * int(input.uv.x);
+	float4 c = T.SampleLevel(S, A[a + b + 2].yx, 0);
+    c *= b;
+    return c;
 }

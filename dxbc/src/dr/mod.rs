@@ -28,7 +28,7 @@ pub use self::stat::*;
 pub struct DxbcHeader {
     pub magic: [u8; 4],
     pub checksum: [u32; 4],
-    _unknown: u8,
+    _unknown: u32,
     pub size: u32,
     pub chunk_count: u32,
 }

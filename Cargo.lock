@@ -31,6 +31,7 @@ dependencies = [
 name = "dxbcc"
 version = "0.1.0"
 dependencies = [
+ "bitflags 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "dxbc 0.1.0",
  "pretty-hex 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -250,6 +250,7 @@ pub struct RdefChunk<'a> {
     pub major: u8,
     pub flags: u32,
     pub author: &'a str,
+    pub rd11: Option<[u32; 7]>,
 }
 
 impl<'a> RdefChunk<'a> {
@@ -267,6 +268,23 @@ impl<'a> RdefChunk<'a> {
 
         let flags = decoder.read_u32();
         let author_offset = decoder.read_u32();
+
+        let rd11 = if major >= 5 {
+            let magic = decoder.read_u32();
+            // assert_eq!(magic, b"RD11");
+
+            Some([
+                decoder.read_u32(),
+                decoder.read_u32(),
+                decoder.read_u32(),
+                decoder.read_u32(),
+                decoder.read_u32(),
+                decoder.read_u32(),
+                decoder.read_u32(),
+            ])
+        } else {
+            None
+        };
 
         decoder.seek_mut(cb_offset as usize);
         let mut constant_buffers = Vec::new();
@@ -290,6 +308,7 @@ impl<'a> RdefChunk<'a> {
             major,
             flags,
             author,
+            rd11,
         })
     }
 }

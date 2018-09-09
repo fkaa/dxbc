@@ -2,8 +2,10 @@
 name = "dxbcc"
 version = "0.1.0"
 authors = ["Felix Kaaman <trundmatu@gmail.com>"]
+build = "build.rs"
 
 [dependencies]
+bitflags = "1"
 byteorder = "1"
 dxbc = { path = "../dxbc" }
 

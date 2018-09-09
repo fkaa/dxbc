@@ -113,11 +113,11 @@ pub enum IndexRepresentation {
 
 #[derive(Debug)]
 pub enum Immediate<'a> {
-    U32(&'a [u32]),
-    U64(&'a [u64]),
-    Relative(&'a [OperandToken0<'a>]),
-    U32Relative(&'a [(u32, OperandToken0<'a>)]),
-    U64Relative(&'a [(u64, OperandToken0<'a>)]),
+    U32(u32),
+    U64(u64),
+    Relative(OperandToken0<'a>),
+    U32Relative(u32, OperandToken0<'a>),
+    U64Relative(u64, OperandToken0<'a>),
 }
 
 #[repr(u32)]
@@ -151,16 +151,16 @@ pub enum NameToken {
     InstanceId = 8,
     IsFrontFace = 9,
     SampleIndex = 10,
-    FinalQuadUEq0EdgeTessfactor = 11, 
-    FinalQuadVEq0EdgeTessfactor = 12, 
-    FinalQuadUEq1EdgeTessfactor = 13, 
-    FinalQuadVEq1EdgeTessfactor = 14, 
-    FinalQuadUInsideTessfactor = 15, 
-    FinalQuadVInsideTessfactor = 16, 
-    FinalTriUEq0EdgeTessfactor = 17, 
-    FinalTriVEq0EdgeTessfactor = 18, 
-    FinalTriWEq0EdgeTessfactor = 19, 
-    FinalTriinsidetessfactor = 20, 
+    FinalQuadUEq0EdgeTessfactor = 11,
+    FinalQuadVEq0EdgeTessfactor = 12,
+    FinalQuadUEq1EdgeTessfactor = 13,
+    FinalQuadVEq1EdgeTessfactor = 14,
+    FinalQuadUInsideTessfactor = 15,
+    FinalQuadVInsideTessfactor = 16,
+    FinalTriUEq0EdgeTessfactor = 17,
+    FinalTriVEq0EdgeTessfactor = 18,
+    FinalTriWEq0EdgeTessfactor = 19,
+    FinalTriinsidetessfactor = 20,
     FinalLineDetailTessfactor = 21,
     FinalLineDensityTessfactor = 22,
 }
@@ -348,7 +348,7 @@ impl InterpolationMode {
 }
 
 #[repr(u32)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum ResourceDimension {
     Unknown = 0,
     Buffer = 1,
@@ -408,7 +408,7 @@ impl ExtendedOpcodeType {
 }
 
 #[repr(u32)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum ResourceReturnType {
     Unorm = 1,
     Snorm = 2,
@@ -555,7 +555,7 @@ impl<'a> OperandToken0<'a> {
                 let ty = operand.get_operand_type();
 
                 match ty {
-                    OperandType::Immediate32 | OperandType::Immediate64 => operand.get_num_components_u32() as usize,
+                    OperandType::Immediate32 | OperandType::Immediate64 => operand.get_num_components_u32(),
                     _ => 0
                 }
             }
@@ -564,35 +564,80 @@ impl<'a> OperandToken0<'a> {
             IndexDimension::D3 => 3,
         };
 
-        let repr = operand.get_index_representation();
 
-        match repr {
-            IndexRepresentation::Immediate32 => {
-                decoder.skip(len * 4);
-            },
-            IndexRepresentation::Immediate64 => {
-                decoder.skip(len * 8);
-            },
-            IndexRepresentation::Relative => {
-                for _ in 0..len {
+        for i in 0..len {
+            let repr = operand.get_index_representation(i);
+
+            match repr {
+                IndexRepresentation::Immediate32 => {
+                    decoder.skip(4);
+                },
+                IndexRepresentation::Immediate64 => {
+                    decoder.skip(8);
+                },
+                IndexRepresentation::Relative => {
                     let _ = OperandToken0::parse(decoder);
                 }
-            }
-            IndexRepresentation::Immediate32PlusRelative => {
-                for _ in 0..len {
+                IndexRepresentation::Immediate32PlusRelative => {
                     decoder.skip(4);
                     let _ = OperandToken0::parse(decoder);
-                }
-            },
-            IndexRepresentation::Immediate64PlusRelative => {
-                for _ in 0..len {
+                },
+                IndexRepresentation::Immediate64PlusRelative => {
                     decoder.skip(8);
                     let _ = OperandToken0::parse(decoder);
-                }
-            },
+                },
+            }
         }
 
         operand
+    }
+
+    pub fn len(&self) -> u32 {
+        let mut len = 0;
+        if self.is_extended() {
+            len += 1;
+        }
+
+        let dim_len = match self.get_index_dimension() {
+            IndexDimension::D0 => {
+                let ty = self.get_operand_type();
+
+                match ty {
+                    OperandType::Immediate32 | OperandType::Immediate64 => self.get_num_components_u32(),
+                    _ => 0
+                }
+            }
+            IndexDimension::D1 => 1,
+            IndexDimension::D2 => 2,
+            IndexDimension::D3 => 3,
+        };
+
+
+        for i in 0..dim_len {
+            let repr = self.get_index_representation(i);
+
+            match repr {
+                IndexRepresentation::Immediate32 => {
+                    len += 1;
+                },
+                IndexRepresentation::Immediate64 => {
+                    len += 2;
+                },
+                IndexRepresentation::Relative => {
+                    len += OperandToken0::from_word(unsafe { self.word.offset(len as isize) }).len();
+                }
+                IndexRepresentation::Immediate32PlusRelative => {
+                    len += 1;
+                    len += OperandToken0::from_word(unsafe { self.word.offset(len as isize) }).len();
+                },
+                IndexRepresentation::Immediate64PlusRelative => {
+                    len += 2;
+                    len += OperandToken0::from_word(unsafe { self.word.offset(len as isize) }).len();
+                },
+            }
+        }
+
+        len
     }
 
     pub fn get_extended_operand(&self) -> Option<OperandToken1<'a>> {
@@ -614,13 +659,15 @@ impl<'a> OperandToken0<'a> {
         }
     }
 
-    pub fn get_immediate(&self) -> Immediate<'a> {
+    pub fn get_immediates(&self) -> Vec<Immediate<'a>> {
+        let mut immediates = Vec::new();
+
         let len = match self.get_index_dimension() {
             IndexDimension::D0 => {
                 let ty = self.get_operand_type();
 
                 match ty {
-                    OperandType::Immediate32 | OperandType::Immediate64 => self.get_num_components_u32() as usize,
+                    OperandType::Immediate32 | OperandType::Immediate64 => self.get_num_components_u32(),
                     _ => 0
                 }
             },
@@ -629,55 +676,90 @@ impl<'a> OperandToken0<'a> {
             IndexDimension::D3 => 3,
         };
 
-        let repr = self.get_index_representation();
+        for i in 0..len {
+            immediates.push(self.get_immediate(i));
+        }
+
+        immediates
+    }
+
+    pub fn get_immediate(&self, index: u32) -> Immediate<'a> {
+        let len = match self.get_index_dimension() {
+            IndexDimension::D0 => {
+                let ty = self.get_operand_type();
+
+                match ty {
+                    OperandType::Immediate32 | OperandType::Immediate64 => self.get_num_components_u32(),
+                    _ => 0
+                }
+            },
+            IndexDimension::D1 => 1,
+            IndexDimension::D2 => 2,
+            IndexDimension::D3 => 3,
+        };
+
         let imm = self.get_immediate_offset();
+        let mut offset = 0;
 
         use self::IndexRepresentation::*;
 
-        unsafe {
-            match repr {
-                Immediate32 => {
-                    Immediate::U32(
-                        slice::from_raw_parts::<'a, u32>(
-                            imm as _,
-                            len
-                        )
-                    )
-                },
-                Immediate64 => {
-                    Immediate::U64(
-                        slice::from_raw_parts::<'a, u64>(
-                            imm as _,
-                            len
-                        )
-                    )
-                },
-                Relative => {
-                    Immediate::Relative(
-                        slice::from_raw_parts::<'a, OperandToken0>(
-                            imm as _,
-                            len
-                        )
-                    )
-                },
-                Immediate32PlusRelative => {
-                    Immediate::U32Relative(
-                        slice::from_raw_parts::<'a, (u32, OperandToken0)>(
-                            imm as _,
-                            len
-                        )
-                    )
-                },
-                Immediate64PlusRelative => {
-                    Immediate::U64Relative(
-                        slice::from_raw_parts::<'a, (u64, OperandToken0)>(
-                            imm as _,
-                            len
-                        )
-                    )
-                },
+        for i in 0..len {
+            let repr = self.get_index_representation(i);
+
+            if i == index {
+                match repr {
+                    Immediate32 => {
+                        return Immediate::U32(
+                            unsafe { *imm.offset(offset as isize) }
+                        );
+                    },
+                    Immediate64 => {
+                        return Immediate::U64(
+                            unsafe { *(imm.offset(offset as isize) as *const u64) }
+                        );
+                    },
+                    Relative => {
+                        return Immediate::Relative(
+                            OperandToken0::from_word(unsafe { imm.offset(offset as isize) })
+                        );
+                    },
+                    Immediate32PlusRelative => {
+                        return Immediate::U32Relative(
+                            unsafe { *imm.offset(offset as isize) },
+                            OperandToken0::from_word(unsafe { imm.offset(1 + offset as isize) })
+                        );
+                    },
+                    Immediate64PlusRelative => {
+                        return Immediate::U64Relative(
+                            unsafe { *(imm.offset(offset as isize) as *const u64) },
+                            OperandToken0::from_word(unsafe { imm.offset(2 + offset as isize) })
+                        );
+                    },
+                }
+            } else {
+                match repr {
+                    Immediate32 => {
+                        offset += 1;
+                    },
+                    Immediate64 => {
+                        offset += 2;
+                    },
+                    Relative => {
+                        offset += OperandToken0::from_word(unsafe { imm.offset(offset as isize) }).len();
+                    },
+                    Immediate32PlusRelative => {
+                        offset += 1;
+                        offset += OperandToken0::from_word(unsafe { imm.offset(offset as isize) }).len();
+                    },
+                    Immediate64PlusRelative => {
+                        offset += 2;
+                        offset += OperandToken0::from_word(unsafe { imm.offset(offset as isize) }).len();
+                    },
+                }
             }
         }
+
+        unreachable!()
     }
 
     pub fn is_extended(&self) -> bool {
@@ -787,10 +869,8 @@ impl<'a> OperandToken0<'a> {
         }
     }
 
-    pub fn get_index_representation(&self) -> IndexRepresentation {
-        let dim = DECODE_D3D10_SB_OPERAND_INDEX_DIMENSION(unsafe { *self.word });
-
-        match DECODE_D3D10_SB_OPERAND_INDEX_REPRESENTATION(dim, unsafe { *self.word }) {
+    pub fn get_index_representation(&self, index: u32) -> IndexRepresentation {
+        match DECODE_D3D10_SB_OPERAND_INDEX_REPRESENTATION(index, unsafe { *self.word }) {
             0 => IndexRepresentation::Immediate32,
             1 => IndexRepresentation::Immediate64,
             2 => IndexRepresentation::Relative,
@@ -813,8 +893,7 @@ impl<'a> fmt::Debug for OperandToken0<'a> {
             .field("ComponentSwizzle", &self.get_component_swizzle())
             .field("OperandType", &self.get_operand_type())
             .field("IndexDimension", &self.get_index_dimension())
-            .field("IndexRepresentation", &self.get_index_representation())
-            .field("Immediate", &self.get_immediate())
+            .field("Immediate", &self.get_immediates())
             .field("IsExtended", &self.is_extended())
             .finish()
     }
@@ -866,8 +945,8 @@ pub struct DclInput<'a> {
 
 impl<'a> DclInput<'a> {
     pub fn get_input_register(&self) -> u32 {
-        match self.operand.get_immediate() {
-            Immediate::U32(reg) => reg[0],
+        match self.operand.get_immediate(0) {
+            Immediate::U32(reg) => reg,
             _ => !0
         }
     }
@@ -880,8 +959,8 @@ pub struct DclInputPs<'a> {
 
 impl<'a> DclInputPs<'a> {
     pub fn get_input_register(&self) -> u32 {
-        match self.operand.get_immediate() {
-            Immediate::U32(reg) => reg[0],
+        match self.operand.get_immediate(0) {
+            Immediate::U32(reg) => reg,
             _ => !0
         }
     }
@@ -894,8 +973,8 @@ pub struct DclOutput<'a> {
 
 impl<'a> DclOutput<'a> {
     pub fn get_output_register(&self) -> u32 {
-        match self.operand.get_immediate() {
-            Immediate::U32(reg) => reg[0],
+        match self.operand.get_immediate(0) {
+            Immediate::U32(reg) => reg,
             _ => !0
         }
     }
@@ -917,15 +996,15 @@ impl<'a> DclConstantBuffer<'a> {
     }
 
     pub fn get_binding(&self) -> u32 {
-        match self.operand.get_immediate() {
-            Immediate::U32(reg) => reg[0],
+        match self.operand.get_immediate(0) {
+            Immediate::U32(reg) => reg,
             _ => !0
         }
     }
 
     pub fn get_size(&self) -> u32 {
-        match self.operand.get_immediate() {
-            Immediate::U32(reg) => reg[1],
+        match self.operand.get_immediate(1) {
+            Immediate::U32(reg) => reg,
             _ => !0
         }
     }
@@ -939,8 +1018,8 @@ pub struct DclResource<'a> {
 
 impl<'a> DclResource<'a> {
     pub fn get_register(&self) -> u32 {
-        match self.register.get_immediate() {
-            Immediate::U32(reg) => reg[0],
+        match self.register.get_immediate(0) {
+            Immediate::U32(reg) => reg,
             _ => !0
         }
     }
@@ -953,8 +1032,8 @@ pub struct DclSampler<'a> {
 
 impl<'a> DclSampler<'a> {
     pub fn get_register(&self) -> u32 {
-        match self.operand.get_immediate() {
-            Immediate::U32(reg) => reg[0],
+        match self.operand.get_immediate(0) {
+            Immediate::U32(reg) => reg,
             _ => !0
         }
     }
@@ -968,8 +1047,8 @@ pub struct DclOutputSiv<'a> {
 
 impl<'a> DclOutputSiv<'a> {
     pub fn get_output_register(&self) -> u32 {
-        match self.operand.get_immediate() {
-            Immediate::U32(reg) => reg[0],
+        match self.operand.get_immediate(0) {
+            Immediate::U32(reg) => reg,
             _ => !0
         }
     }
@@ -987,8 +1066,8 @@ pub struct DclOutputSgv<'a> {
 
 impl<'a> DclOutputSgv<'a> {
     pub fn get_output_register(&self) -> u32 {
-        match self.operand.get_immediate() {
-            Immediate::U32(reg) => reg[0],
+        match self.operand.get_immediate(0) {
+            Immediate::U32(reg) => reg,
             _ => !0
         }
     }
@@ -1008,8 +1087,8 @@ pub struct DclInputPsSiv<'a> {
 
 impl<'a> DclInputPsSiv<'a> {
     pub fn get_input_register(&self) -> u32 {
-        match self.operand.get_immediate() {
-            Immediate::U32(reg) => reg[0],
+        match self.operand.get_immediate(0) {
+            Immediate::U32(reg) => reg,
             _ => !0
         }
     }
@@ -1027,8 +1106,8 @@ pub struct DclInputPsSgv<'a> {
 
 impl<'a> DclInputPsSgv<'a> {
     pub fn get_input_register(&self) -> u32 {
-        match self.operand.get_immediate() {
-            Immediate::U32(reg) => reg[0],
+        match self.operand.get_immediate(0) {
+            Immediate::U32(reg) => reg,
             _ => !0
         }
     }
@@ -1128,6 +1207,14 @@ pub struct SampleL<'a> {
     pub src_lod: OperandToken0<'a>,
 }
 
+#[derive(Debug)]
+pub struct Sample<'a> {
+    pub dst: OperandToken0<'a>,
+    pub src_address: OperandToken0<'a>,
+    pub src_resource: OperandToken0<'a>,
+    pub src_sampler: OperandToken0<'a>,
+}
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct ShexHeader {
@@ -1191,6 +1278,7 @@ pub enum Operands<'a> {
     EndLoop,
     Break,
     BreakC(BreakC<'a>),
+    Sample(Sample<'a>),
     SampleL(SampleL<'a>),
     Ret,
     Unknown
@@ -1203,10 +1291,10 @@ impl<'a> Instruction<'a> {
         let len = opcode.get_instruction_length();
 
         let mut ex = opcode.get_extended_opcode();
-        while let Some(opcode) = ex {
-            //println!("{:?}", opcode);
-            //println!("{:?}", ex);
-            ex = opcode.get_extended_opcode();
+        while let Some(opc) = ex {
+            // println!("{:?}", opcode);
+            // println!("{:?}", opc);
+            ex = opc.get_extended_opcode();
             decoder.skip(4);
         }
 
@@ -1360,6 +1448,14 @@ impl<'a> Instruction<'a> {
             D3D10_SB_OPCODE_BREAKC => {
                 Operands::BreakC(BreakC {
                     src: OperandToken0::parse(decoder),
+                })
+            }
+            D3D10_SB_OPCODE_SAMPLE => {
+                Operands::Sample(Sample {
+                    dst: OperandToken0::parse(decoder),
+                    src_address: OperandToken0::parse(decoder),
+                    src_resource: OperandToken0::parse(decoder),
+                    src_sampler: OperandToken0::parse(decoder),
                 })
             }
             D3D10_SB_OPCODE_SAMPLE_L => {

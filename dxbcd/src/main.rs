@@ -119,6 +119,24 @@ impl DisasmConsumer {
         }
     }
 
+    fn write_immediate<'a>(&mut self, imm: Immediate<'a>) {
+        match imm {
+            Immediate::U32(val) => { write!(self.out, "{}", val).unwrap(); },
+            Immediate::U64(val) => { write!(self.out, "{}", val).unwrap(); },
+            Immediate::Relative(operand) => {
+                self.write_operand(&operand);
+            },
+            Immediate::U32Relative(val, operand) => {
+                write!(self.out, "{} + ", val).unwrap();
+                self.write_operand(&operand);
+            },
+            Immediate::U64Relative(val, operand) => {
+                write!(self.out, "{} + ", val).unwrap();
+                self.write_operand(&operand);
+            },
+        }
+    }
+
     fn write_operands<'a>(&mut self, operands: &[OperandToken0<'a>]) {
         let len = operands.len();
 
@@ -134,7 +152,6 @@ impl DisasmConsumer {
 
     fn write_operand<'a>(&mut self, operand: &OperandToken0<'a>) {
         let ty = operand.get_operand_type();
-        let immediate = operand.get_immediate();
 
         match ty {
             OperandType::Immediate32 | OperandType::Immediate64 => {
@@ -145,17 +162,20 @@ impl DisasmConsumer {
                 }
 
                 self.out.fg(IMMEDIATE_COLOR).unwrap();
-                match immediate {
-                    Immediate::U32(vals) => {
-                        let values = vals.iter().map(|&v| format!("{:.6}", f32::from_bits(v))).collect::<Vec<_>>();
-                        write!(self.out, "{}", values.join(", ")).unwrap();
-                    },
-                    Immediate::U64(vals) => {
-                        let values = vals.iter().map(|&v| format!("{:.6}", f64::from_bits(v))).collect::<Vec<_>>();
-                        write!(self.out, "{}", values.join(", ")).unwrap();
+                let mut literals = Vec::new();
+                let immediates = operand.get_immediates();
+                for imm in immediates {
+                    match imm {
+                        Immediate::U32(val) => {
+                            literals.push(format!("{:.6}", f32::from_bits(val)));
+                        },
+                        Immediate::U64(val) => {
+                            literals.push(format!("{:.6}", f64::from_bits(val)));
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
+                write!(self.out, "{}", literals.join(", ")).unwrap();
                 self.out.reset().unwrap();
 
                 write!(self.out, ")").unwrap();
@@ -194,7 +214,21 @@ impl DisasmConsumer {
 
         write!(self.out, "{}", prefix).unwrap();
 
-        match immediate {
+        let dim = operand.get_index_dimension();
+
+        match dim {
+            IndexDimension::D1 => {
+                self.write_immediate(operand.get_immediate(0));
+            },
+            IndexDimension::D2 => {
+                self.write_immediate(operand.get_immediate(0));
+                write!(self.out, "[").unwrap();
+                self.write_immediate(operand.get_immediate(1));
+                write!(self.out, "]").unwrap();
+            },
+            _ => {}
+        }
+        /*match immediate {
             Immediate::U32(vals) => {
                 match vals.len() {
                     1 => {
@@ -207,7 +241,7 @@ impl DisasmConsumer {
                 }
             },
             _ => {}
-        }
+        }*/
 
         fn write_swizzle_component(disasm: &mut DisasmConsumer, val: ComponentName) {
             match val {
@@ -271,7 +305,10 @@ impl DisasmConsumer {
                 write_swizzle_component(self, swizzle.3);
             }
             ComponentSelectMode::Select1 => {
+                write!(self.out, ".").unwrap();
 
+                let swizzle = operand.get_component_swizzle();
+                write_swizzle_component(self, swizzle.0);
             }
         }
 
@@ -608,8 +645,14 @@ impl Consumer for DisasmConsumer {
 
                 self.write_operands(&[breakc.src]);
             }
+            Sample(sample) => {
+                self.write_instruction(opcode, offset, "sample");
+
+                self.write_operands(&[sample.dst, sample.src_address, sample.src_resource, sample.src_sampler]);
+            }
             SampleL(sample) => {
                 self.write_instruction(opcode, offset, "sample_l");
+
                 self.write_operands(&[sample.dst, sample.src_address, sample.src_resource, sample.src_sampler, sample.src_lod]);
             }
             Ret => {
@@ -628,11 +671,10 @@ impl Consumer for DisasmConsumer {
 }
 
 fn main() {
-    let mut shader_bytes = include_bytes!("..\\shader.dxbc");
+    let mut shader_bytes = include_bytes!("..\\assembled.dxbc");
 
     let start = 0x4;
     println!("Real Checksum: {:?}", unsafe { ::std::slice::from_raw_parts(&shader_bytes[start..(start+16)] as *const _ as *const u32, 4) });
-    println!("");
     println!("???? Checksum: {:?}", dxbc::checksum(shader_bytes));
 
     let mut consumer = DisasmConsumer::new();
