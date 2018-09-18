@@ -16,11 +16,13 @@ pub mod rdef;
 pub mod isgn;
 pub mod shex;
 pub mod stat;
+pub mod builder;
 
 pub use self::rdef::*;
 pub use self::isgn::*;
 pub use self::shex::*;
 pub use self::stat::*;
+pub use self::builder::*;
 
 
 #[repr(C)]
@@ -32,4 +34,3 @@ pub struct DxbcHeader {
     pub size: u32,
     pub chunk_count: u32,
 }
-

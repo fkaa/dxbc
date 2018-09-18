@@ -35,7 +35,7 @@ pub trait Consumer {
     fn consume_osgn(&mut self, osgn: &dr::IOsgnChunk) -> Action { Action::Continue }
     fn consume_shex(&mut self, osgn: &dr::ShexHeader) -> Action { Action::Continue }
     fn consume_stat(&mut self, osgn: &dr::IStatChunk) -> Action { Action::Continue }
-    fn consume_instruction(&mut self, offset: u32, instruction: dr::Instruction) -> Action { Action::Continue }
+    fn consume_instruction(&mut self, offset: u32, instruction: dr::SparseInstruction) -> Action { Action::Continue }
 }
 
 fn try_consume(action: Action) -> Result<(), State> {
@@ -95,7 +95,7 @@ impl<'c, 'd> Parser<'c, 'd> {
 
                     while !decoder.eof() {
                         let offset = decoder.get_offset();
-                        let instruction = dr::Instruction::parse(&mut decoder);
+                        let instruction = dr::SparseInstruction::parse(&mut decoder);
 
                         try_consume(self.consumer.consume_instruction(offset as u32, instruction))?;
                     }

@@ -1,17 +1,11 @@
-extern crate dxbc;
-extern crate byteorder;
-#[macro_use]
-extern crate bitflags;
+use dr::shex::{ResourceDimension, ResourceReturnType};
+use dr::{IStatChunk, IOsgnChunk, RdefChunk};
 
 use byteorder::{ByteOrder, LittleEndian};
-
-// TODO: clean up
-#[path = "../../dxbc/src/d3d11tokenizedprogramformat.rs"]
-mod d3d11tokenizedprogramformat;
-
+use checksum;
 use d3d11tokenizedprogramformat::*;
 
-use dxbc::dr::shex::{ResourceDimension, ResourceReturnType};
+use std::{slice, mem};
 
 const DXBC_MAGIC: u32 = 0x43425844;
 const RDEF_MAGIC: u32 = 0x46454452;
@@ -22,10 +16,10 @@ const SHEX_MAGIC: u32 = 0x58454853;
 const STAT_MAGIC: u32 = 0x54415453;
 
 pub struct Builder<'a> {
-    rdef: Option<dxbc::dr::RdefChunk<'a>>,
-    isgn: Option<dxbc::dr::IOsgnChunk<'a>>,
-    osgn: Option<dxbc::dr::IOsgnChunk<'a>>,
-    stat: Option<dxbc::dr::IStatChunk>,
+    rdef: Option<RdefChunk<'a>>,
+    isgn: Option<IOsgnChunk>,
+    osgn: Option<IOsgnChunk>,
+    stat: Option<IStatChunk>,
     shex: Option<ShexChunk>,
     code: Vec<u32>,
 }
@@ -64,6 +58,7 @@ impl DxbcModule {
     pub fn write_str(&mut self, text: &str) -> u32 {
         let mut len = 0;
 
+        // NOTE: fxc pads with 0xABAB.. pattern
         for chunk in text.as_bytes().chunks(4) {
             let data = match chunk {
                 &[d, c, b, a] => ((a as u32) << 24) | ((b as u32) << 16) | ((c as u32) << 8) | d as u32,
@@ -88,7 +83,7 @@ impl DxbcModule {
         len
     }
 
-    pub fn write_stat(&mut self, stat: &dxbc::dr::IStatChunk) {
+    pub fn write_stat(&mut self, stat: &IStatChunk) {
         self.write_u32(STAT_MAGIC);
 
         let stat_size_pos = self.position();
@@ -123,7 +118,7 @@ impl DxbcModule {
         self.set_u32(stat_size_pos, 4 * (end_pos - chunk_start) as u32);
     }
 
-    pub fn write_rdef(&mut self, rdef: &dxbc::dr::RdefChunk) {
+    pub fn write_rdef(&mut self, rdef: &RdefChunk) {
         self.write_u32(RDEF_MAGIC);
         let rdef_size_pos = self.position();
         self.write_u32(0);
@@ -181,7 +176,7 @@ impl DxbcModule {
         self.set_u32(rdef_size_pos, 4 * (end_pos - chunk_start) as u32);
     }
 
-    pub fn write_iosgn(&mut self, chunk: &dxbc::dr::IOsgnChunk, magic: u32) {
+    pub fn write_iosgn(&mut self, chunk: &IOsgnChunk, magic: u32) {
         self.write_u32(magic);
         let chunk_sz_pos = self.position();
         self.write_u32(0);
@@ -195,8 +190,8 @@ impl DxbcModule {
             string_positions.push(self.position());
             self.write_u32(0);
             self.write_u32(element.semantic_index);
-            self.write_u32(element.semantic_type);
-            self.write_u32(element.component_type);
+            self.write_u32(element.semantic_type as u32);
+            self.write_u32(element.component_type as u32);
             self.write_u32(element.register);
             let mask_tok = ((element.rw_mask as u32) << 8) | (element.component_mask as u32);
             self.write_u32(mask_tok);
@@ -205,18 +200,18 @@ impl DxbcModule {
         for (element, pos) in chunk.elements.iter().zip(string_positions) {
             let name_offset = self.position() - chunk_start;
             self.set_u32(pos, 4 * name_offset as u32);
-            self.write_str(element.name);
+            self.write_str(&element.name);
         }
 
         let chunk_sz = self.position() - chunk_start;
         self.set_u32(chunk_sz_pos, 4 * chunk_sz as u32);
     }
 
-    pub fn write_isgn(&mut self, chunk: &dxbc::dr::IOsgnChunk) {
+    pub fn write_isgn(&mut self, chunk: &IOsgnChunk) {
         self.write_iosgn(chunk, ISGN_MAGIC);
     }
 
-    pub fn write_osgn(&mut self, chunk: &dxbc::dr::IOsgnChunk) {
+    pub fn write_osgn(&mut self, chunk: &IOsgnChunk) {
         self.write_iosgn(chunk, OSGN_MAGIC);
     }
 
@@ -408,9 +403,9 @@ impl DxbcModule {
 
     pub fn as_bytes(&self) -> &[u8] {
         unsafe {
-            std::slice::from_raw_parts(
+            slice::from_raw_parts(
                 self.dwords.as_ptr() as *const u8,
-                self.dwords.len() * std::mem::size_of::<u32>(),
+                self.dwords.len() * mem::size_of::<u32>(),
             )
         }
     }
@@ -428,15 +423,15 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub fn set_rdef(&mut self, rdef: dxbc::dr::RdefChunk<'a>) {
+    pub fn set_rdef(&mut self, rdef: RdefChunk<'a>) {
         self.rdef = Some(rdef);
     }
 
-    pub fn set_isgn(&mut self, isgn: dxbc::dr::IOsgnChunk<'a>) {
+    pub fn set_isgn(&mut self, isgn: IOsgnChunk) {
         self.isgn = Some(isgn);
     }
 
-    pub fn set_osgn(&mut self, osgn: dxbc::dr::IOsgnChunk<'a>) {
+    pub fn set_osgn(&mut self, osgn: IOsgnChunk) {
         self.osgn = Some(osgn);
     }
 
@@ -444,7 +439,7 @@ impl<'a> Builder<'a> {
         self.shex = Some(shex);
     }
 
-    pub fn set_stat(&mut self, stat: dxbc::dr::IStatChunk) {
+    pub fn set_stat(&mut self, stat: IStatChunk) {
         self.stat = Some(stat);
     }
 
@@ -503,7 +498,7 @@ impl<'a> Builder<'a> {
         // finally, patch in size and checksum
         let len = 4 * module.dwords.len() as u32;
         module.set_u32(size_pos, len);
-        let checksum = dxbc::checksum(module.as_bytes());
+        let checksum = ::checksum(module.as_bytes());
         module.set_u32(checksum_pos,     checksum[0]);
         module.set_u32(checksum_pos + 1, checksum[1]);
         module.set_u32(checksum_pos + 2, checksum[2]);

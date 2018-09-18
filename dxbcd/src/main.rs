@@ -2,6 +2,7 @@ extern crate dxbc;
 extern crate term;
 
 use dxbc::dr::*;
+use dxbc::dr::shex::*;
 use dxbc::binary::*;
 
 use std::mem;
@@ -386,13 +387,18 @@ impl Consumer for DisasmConsumer {
         for elem in &isgn.elements {
             writeln!(
                 self.out,
-                "// {:20} {:5} {:6} {:8} {:8} {:7} {:6}",
+                "// {:20} {:5} {:6} {:8} {:8?} {:7} {:6}",
                 elem.name,
                 elem.semantic_index,
-                elem.component_type,
+                elem.component_mask,
                 elem.register,
-                "NONE",
-                elem.component_type,
+                elem.semantic_type,
+                match elem.component_type {
+                    RegisterComponentType::Unknown => "NONE",
+                    RegisterComponentType::Uint32 => "uint",
+                    RegisterComponentType::Int32 => "int",
+                    RegisterComponentType::Float32 => "float",
+                },
                 elem.rw_mask,
             ).unwrap();
         }
@@ -416,13 +422,18 @@ impl Consumer for DisasmConsumer {
         for elem in &osgn.elements {
             writeln!(
                 self.out,
-                "// {:20} {:5} {:6} {:8} {:8} {:7} {:6}",
+                "// {:20} {:5} {:6} {:8} {:8?} {:7} {:6}",
                 elem.name,
                 elem.semantic_index,
-                elem.component_type,
+                elem.component_mask,
                 elem.register,
-                "NONE",
-                elem.component_type,
+                elem.semantic_type,
+                match elem.component_type {
+                    RegisterComponentType::Unknown => "NONE",
+                    RegisterComponentType::Uint32 => "uint",
+                    RegisterComponentType::Int32 => "int",
+                    RegisterComponentType::Float32 => "float",
+                },
                 elem.rw_mask,
             ).unwrap();
         }
@@ -439,7 +450,7 @@ impl Consumer for DisasmConsumer {
         Action::Continue
     }
 
-    fn consume_instruction(&mut self, offset: u32, instruction: dxbc::dr::Instruction) -> Action {
+    fn consume_instruction(&mut self, offset: u32, instruction: dxbc::dr::SparseInstruction) -> Action {
         use dxbc::dr::Operands::*;
 
         let opcode = instruction.opcode;

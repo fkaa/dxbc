@@ -1243,7 +1243,7 @@ impl ShexHeader {
 }
 
 #[derive(Debug)]
-pub struct Instruction<'a> {
+pub struct SparseInstruction<'a> {
     pub opcode: OpcodeToken0<'a>,
     pub operands: Operands<'a>,
 }
@@ -1284,8 +1284,8 @@ pub enum Operands<'a> {
     Unknown
 }
 
-impl<'a> Instruction<'a> {
-    pub fn parse<'b>(decoder: &'b mut decoder::Decoder) -> Instruction<'b> {
+impl<'a> SparseInstruction<'a> {
+    pub fn parse<'b>(decoder: &'b mut decoder::Decoder) -> SparseInstruction<'b> {
         let opcode = OpcodeToken0::from_word(decoder.read_u32_address());
         let ty = opcode.get_opcode_type();
         let len = opcode.get_instruction_length();
@@ -1479,7 +1479,7 @@ impl<'a> Instruction<'a> {
             }
         };
 
-        Instruction {
+        SparseInstruction {
             opcode,
             operands,
         }

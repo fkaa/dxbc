@@ -1,6 +1,6 @@
 [workspace]
 members = [
     "dxbc",
-    "dxbcc",
+    "dxbcross",
     "dxbcd",
 ]
